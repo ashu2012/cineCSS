@@ -1,16 +1,72 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, ArrowDownToLine, Maximize2, Upload, FileText, Loader2 } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { ArrowLeft, ArrowRight, ArrowDownToLine, Maximize2, Upload, FileText, Loader2, Settings, Volume2, VolumeX, Clock, Sun, Palette, Zap, Type, MoveHorizontal, GripHorizontal } from 'lucide-react';
 // @ts-ignore
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Initialize PDF.js worker
+// Initialize PDF.js worker for handling PDF uploads
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
 
+/**
+ * FoldState definitions:
+ * READING: The newspaper is open and pages can be flipped.
+ * CLOSED_VERTICAL: The book is closed (cover visible), preparing to fold.
+ * FOLDING_HORIZONTAL: The newspaper is folding in half horizontally.
+ * ON_TABLE: The newspaper is fully folded and resting on the table.
+ */
 type FoldState = 'READING' | 'CLOSED_VERTICAL' | 'FOLDING_HORIZONTAL' | 'ON_TABLE';
 
+type FontStyle = 'classic' | 'typewriter' | 'modern';
+
+interface SceneConfig {
+    foldDuration: number;
+    turnDuration: number;
+    volume: number;
+    isMuted: boolean;
+    paperColor: string;
+    lighting: number;
+    fontStyle: FontStyle;
+    publicationTitle: string;
+}
+
+const FONT_STYLES: Record<FontStyle, React.CSSProperties> = {
+    classic: { fontFamily: '"Times New Roman", Times, serif' },
+    typewriter: { fontFamily: '"Courier New", Courier, monospace', letterSpacing: '-0.5px' },
+    modern: { fontFamily: '"Inter", sans-serif', letterSpacing: '-0.2px' }
+};
+
 const Newspaper: React.FC = () => {
-  // State for content inputs
+  // --- State Management ---
+  
+  // Layout State
+  const [controlPanelHeight, setControlPanelHeight] = useState(350);
+  const [sceneScale, setSceneScale] = useState(1);
+  const sceneWrapperRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+
+  // Configuration State
+  const [config, setConfig] = useState<SceneConfig>({
+      foldDuration: 1500,
+      turnDuration: 1000,
+      volume: 0.3,
+      isMuted: false,
+      paperColor: '#f4f1ea',
+      lighting: 1.0,
+      fontStyle: 'classic',
+      publicationTitle: 'THE CINE TIMES'
+  });
+
+  // Dynamic content states
   const [headline, setHeadline] = useState('AI TAKES OVER HOLLYWOOD');
+  
+  const [pageTexts, setPageTexts] = useState<string[]>([
+      "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.", // Cover (Page 1)
+      "Unlike video, CSS animations are lightweight and crisp. They breathe life into the DOM without the weight of heavy assets.", // Page 2
+      "In a world dominated by screens, the return to tactile design is imminent. We explore the latest trends in retro-futurism.", // Page 3
+      "Can an element be both visible and hidden? Schrödinger's Div explains all.", // Page 4
+      "Exploring the hidden corners of the digital world. Why simulations feel more real than reality." // Page 5
+  ]);
+
   const [images, setImages] = useState([
     'https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&q=80&w=800', // Cover (Img 0)
     'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&q=80&w=800', // Page 2 (Img 1)
@@ -19,28 +75,90 @@ const Newspaper: React.FC = () => {
     'https://images.unsplash.com/photo-1469474932316-d6df4d5d7932?auto=format&fit=crop&q=80&w=800', // Page 5 (Img 4)
   ]);
 
-  // State for page flipping (0 = cover visible, 1 = first spread open, etc)
+  // Page flipping logic: 0 = Cover, 1 = First Spread, etc.
   const [flippedIndex, setFlippedIndex] = useState(0);
   
-  // State for folding sequence
+  // Animation sequence state
   const [foldState, setFoldState] = useState<FoldState>('READING');
 
-  // PDF Loading state
+  // PDF Processing state
   const [isPdfLoading, setIsPdfLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const totalSheets = 3; // Cover+P2, P3+P4, P5+P6
-  const FOLD_DURATION = 1500; 
+  
+  // --- Auto-Scaling Logic ---
+  useEffect(() => {
+    if (!sceneWrapperRef.current) return;
 
-  // Sound Synthesis
+    const calculateScale = () => {
+        if (!sceneWrapperRef.current) return;
+        const { width, height } = sceneWrapperRef.current.getBoundingClientRect();
+        
+        // Target Content dimensions
+        const contentHeight = 510; 
+        const contentWidth = 950; 
+
+        // Desired gap: 5px top + 5px bottom = 10px total
+        const verticalGap = 10;
+        
+        const availableHeight = height - verticalGap;
+        const availableWidth = width;
+
+        const scaleX = availableWidth / contentWidth;
+        const scaleY = availableHeight / contentHeight;
+
+        const newScale = Math.min(scaleX, scaleY);
+        setSceneScale(Math.max(0.2, newScale)); 
+    };
+
+    const observer = new ResizeObserver(calculateScale);
+    observer.observe(sceneWrapperRef.current);
+    calculateScale();
+
+    return () => observer.disconnect();
+  }, [controlPanelHeight]);
+
+  // --- Resizable Divider Logic ---
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    isDragging.current = true;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    
+    const handleMouseMove = (e: MouseEvent) => {
+        if (!isDragging.current || !containerRef.current) return;
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const newHeight = containerRect.bottom - e.clientY;
+        const minHeight = 150;
+        const maxHeight = containerRect.height - 100;
+        setControlPanelHeight(Math.max(minHeight, Math.min(newHeight, maxHeight)));
+    };
+
+    const handleMouseUp = () => {
+        isDragging.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, []);
+
+  // --- Audio Engine ---
   const playSound = (type: 'turn' | 'rustle' | 'thud' | 'fold') => {
     if (typeof window === 'undefined') return;
+    if (config.isMuted || config.volume <= 0) return;
+
     const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContext) return;
     
     const ctx = new AudioContext();
+    const masterGain = ctx.createGain();
+    masterGain.gain.value = config.volume;
+    masterGain.connect(ctx.destination);
     
-    // Create Noise Buffer
     const bufferSize = ctx.sampleRate * (type === 'rustle' || type === 'fold' ? 1.0 : 0.5);
     const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
     const data = buffer.getChannelData(0);
@@ -59,7 +177,7 @@ const Newspaper: React.FC = () => {
         filter.type = 'highpass';
         filter.frequency.value = 1200;
         gain.gain.setValueAtTime(0.05, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + config.turnDuration / 1000 * 0.3);
     } else if (type === 'rustle') {
         filter.type = 'bandpass';
         filter.frequency.value = 800;
@@ -79,9 +197,11 @@ const Newspaper: React.FC = () => {
 
     noise.connect(filter);
     filter.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(masterGain);
     noise.start();
   };
+
+  // --- Navigation Handlers ---
 
   const handleNext = () => {
     if (flippedIndex < totalSheets) {
@@ -97,53 +217,43 @@ const Newspaper: React.FC = () => {
     }
   };
 
+  // --- Animation Orchestration ---
+
   const handleFold = () => {
-    // 1. Vertical Fold (Close Pages)
     if (flippedIndex > 0) {
         playSound('turn');
         setFlippedIndex(0);
-        
-        // Wait for vertical close animation (1000ms duration) to fully complete
         setTimeout(() => {
             setFoldState('CLOSED_VERTICAL');
-            // Small buffer before starting horizontal fold
             setTimeout(() => {
                  startHorizontalFold();
             }, 100);
-        }, 1100);
+        }, config.turnDuration + 100);
     } else {
         startHorizontalFold();
     }
   };
 
   const startHorizontalFold = () => {
-      // 2. Start Horizontal Fold
       setFoldState('FOLDING_HORIZONTAL');
       playSound('fold');
-
-      // Wait for fold animation then drop to table
       setTimeout(() => {
           setFoldState('ON_TABLE');
-          // Wait for drop animation to hit
-          setTimeout(() => playSound('thud'), 600);
-      }, FOLD_DURATION);
+          setTimeout(() => playSound('thud'), config.foldDuration * 0.4);
+      }, config.foldDuration);
   };
 
   const handleUnfold = () => {
       if (foldState === 'ON_TABLE') {
           playSound('rustle');
-          // Reverse: Lift from table
           setFoldState('FOLDING_HORIZONTAL');
-          
           setTimeout(() => {
-              // Unfold Horizontal
-              setFoldState('CLOSED_VERTICAL'); // Or READING
-              playSound('fold'); // Reverse fold sound
-              
+              setFoldState('CLOSED_VERTICAL'); 
+              playSound('fold'); 
               setTimeout(() => {
                 setFoldState('READING');
               }, 600);
-          }, FOLD_DURATION);
+          }, config.foldDuration);
       }
   };
 
@@ -153,6 +263,13 @@ const Newspaper: React.FC = () => {
     setImages(newImages);
   };
 
+  const updatePageText = (index: number, value: string) => {
+      const newTexts = [...pageTexts];
+      newTexts[index] = value;
+      setPageTexts(newTexts);
+  };
+
+  // --- PDF Import Logic ---
   const handlePdfUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || file.type !== 'application/pdf') return;
@@ -162,61 +279,45 @@ const Newspaper: React.FC = () => {
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       
-      // We want to slice the PDF content continuously.
-      // 1. Determine dimensions.
-      // Newspaper Content Width = 352px (roughly).
-      // Heights:
-      // Img 0 (Cover): 192px
-      // Img 1 (Pg 2): 226px
-      // Img 2 (Pg 3): 160px
-      // Img 3 (Pg 4): 160px
-      // Img 4 (Pg 5): 160px
-      // Total needed height relative to width 352: ~898px.
-      
-      // 2. Create a "Source Roll" canvas.
-      const sourceWidth = 1000; // High res width
-      // Scale factor = 1000 / 352 ~= 2.84
+      const sourceWidth = 1000;
       const scaleFactor = sourceWidth / 352;
       
       const targetHeights = [
-          192 * scaleFactor, // Slot 0
-          226 * scaleFactor, // Slot 1
-          160 * scaleFactor, // Slot 2
-          160 * scaleFactor, // Slot 3
-          160 * scaleFactor, // Slot 4
+          192 * scaleFactor,
+          226 * scaleFactor,
+          160 * scaleFactor,
+          160 * scaleFactor,
+          160 * scaleFactor,
       ];
       
       const totalHeightNeeded = targetHeights.reduce((a, b) => a + b, 0);
       
-      // Render PDF pages onto a temp canvas until we have enough height
       const rollCanvas = document.createElement('canvas');
       rollCanvas.width = sourceWidth;
-      rollCanvas.height = totalHeightNeeded + 2000; // Extra buffer
+      rollCanvas.height = totalHeightNeeded + 2000;
       const rollCtx = rollCanvas.getContext('2d');
       if (!rollCtx) throw new Error("No context");
       
-      rollCtx.fillStyle = '#ffffff';
+      rollCtx.fillStyle = config.paperColor;
       rollCtx.fillRect(0, 0, rollCanvas.width, rollCanvas.height);
 
       let currentPdfY = 0;
-      const maxPdfPages = Math.min(pdf.numPages, 4); // Limit to first 4 pages
+      const maxPdfPages = Math.min(pdf.numPages, 4);
 
       for (let i = 0; i < maxPdfPages; i++) {
           const page = await pdf.getPage(i + 1);
           const viewport = page.getViewport({ scale: sourceWidth / page.getViewport({ scale: 1 }).width });
           
-          // Draw this page onto the roll
           const pageCanvas = document.createElement('canvas');
           pageCanvas.width = viewport.width;
           pageCanvas.height = viewport.height;
           const pageCtx = pageCanvas.getContext('2d');
           
           if (pageCtx) {
-               pageCtx.fillStyle = '#ffffff';
+               pageCtx.fillStyle = config.paperColor;
                pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-               await page.render({ canvasContext: pageCtx, viewport }).promise;
+               await page.render({ canvasContext: pageCtx, viewport } as any).promise;
                
-               // Copy to roll
                rollCtx.drawImage(pageCanvas, 0, currentPdfY);
                currentPdfY += viewport.height;
           }
@@ -224,7 +325,6 @@ const Newspaper: React.FC = () => {
           if (currentPdfY >= totalHeightNeeded) break;
       }
 
-      // 3. Slice
       const newImages = [...images];
       let sliceY = 0;
       
@@ -244,8 +344,6 @@ const Newspaper: React.FC = () => {
 
       setImages(newImages);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      
-      // Auto open if folded
       if (foldState !== 'READING') handleUnfold();
 
     } catch (err) {
@@ -256,19 +354,21 @@ const Newspaper: React.FC = () => {
     }
   };
 
-  // Helper to determine image style based on content type
   const getImageClassName = (src: string) => {
-    return "w-full h-full object-cover object-top bg-white";
+    return "w-full h-full object-cover object-top";
   };
 
-  // Helper to render consistent cover content
+  const getPaperStyle = (): React.CSSProperties => ({
+      backgroundColor: config.paperColor,
+      ...FONT_STYLES[config.fontStyle]
+  });
+
   const renderCoverContent = () => (
-    <div className="absolute inset-0 bg-[#f4f1ea] shadow-[inset_2px_0_5px_rgba(0,0,0,0.1)] p-6 flex flex-col h-full overflow-hidden">
-        {/* Blocking layer for opacity */}
-        <div className="absolute inset-0 bg-[#f4f1ea] -z-10"></div>
+    <div className="absolute inset-0 shadow-[inset_2px_0_5px_rgba(0,0,0,0.1)] p-6 flex flex-col h-full overflow-hidden" style={getPaperStyle()}>
+        <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
         
         <div className="text-center border-b-2 border-black pb-4 mb-4">
-            <h1 className="font-serif text-4xl font-black tracking-tight text-black mb-1">THE CINE TIMES</h1>
+            <h1 className="text-4xl font-black tracking-tight text-black mb-1" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>{config.publicationTitle}</h1>
             <div className="flex justify-between text-[9px] font-sans font-bold text-neutral-600 border-t border-black pt-1 mt-1">
                 <span>VOL. CCLIV</span>
                 <span>CSS EDITION</span>
@@ -276,21 +376,18 @@ const Newspaper: React.FC = () => {
             </div>
         </div>
         
-        <h2 className="font-serif text-3xl font-bold leading-none mb-3 text-neutral-900 line-clamp-2">{headline}</h2>
+        <h2 className="text-3xl font-bold leading-none mb-3 text-neutral-900 line-clamp-2" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>{headline}</h2>
         
         <div className="w-full h-48 bg-neutral-300 mb-4 overflow-hidden relative grayscale contrast-110 shrink-0">
-            <img src={images[0]} alt="Cover" className={getImageClassName(images[0])} />
+            <img src={images[0]} alt="Cover" className={getImageClassName(images[0])} style={{ backgroundColor: config.paperColor }} />
             <div className="absolute bottom-0 left-0 bg-black text-white text-[8px] px-1 py-0.5">FIG 1.1</div>
         </div>
 
-        <div className="columns-2 gap-4 text-[10px] font-serif text-justify leading-tight text-neutral-800">
-            <p className="mb-2"><span className="font-bold text-2xl float-left mr-1 leading-none mt-[-2px]">L</span>orem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.</p>
-            <p>Quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit.</p>
-            <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+        <div className="columns-2 gap-4 text-[10px] text-justify leading-tight text-neutral-800" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+            <p className="mb-2"><span className="font-bold text-2xl float-left mr-1 leading-none mt-[-2px]">{pageTexts[0].charAt(0)}</span>{pageTexts[0].slice(1)}</p>
         </div>
         
-        {/* Page Number */}
-        <div className="absolute bottom-4 right-4 z-50 font-serif text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]">1</div>
+        <div className="absolute bottom-4 right-4 z-50 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>1</div>
     </div>
   );
 
@@ -310,13 +407,31 @@ const Newspaper: React.FC = () => {
       WebkitBackfaceVisibility: 'hidden',
   };
 
+  // Helper to manage z-indices for sheets
+  const getSheetZIndex = (sheetIndex: number) => {
+      // If the sheet is active (on top of stack) or transitioning, we want high Z.
+      // Left stack (flipped): higher indices should be on top.
+      // Right stack (not flipped): lower indices should be on top.
+      
+      const isFlipped = sheetIndex < flippedIndex;
+      
+      if (isFlipped) {
+          // Left stack: 0 bottom, 1 middle, 2 top
+          return sheetIndex;
+      } else {
+          // Right stack: 0 top, 1 middle, 2 bottom
+          return 100 - sheetIndex;
+      }
+  };
+
   return (
-    <div className="w-full h-full bg-[#1a1a1a] flex flex-col relative overflow-hidden">
-      {/* 3D Scene Container */}
-      <div className="flex-1 flex items-center justify-center overflow-hidden py-8 relative">
+    <div ref={containerRef} className="w-full h-full bg-[#1a1a1a] flex flex-col relative overflow-hidden transition-all duration-1000" style={{ filter: `brightness(${config.lighting})` }}>
+      
+      {/* 3D Scene Container - Flex grow to fill available space */}
+      <div ref={sceneWrapperRef} className="flex-1 flex items-center justify-center overflow-hidden relative min-h-0">
         
-        {/* Navigation Arrows */}
-        <div className="absolute flex justify-between w-full max-w-[320px] sm:max-w-[450px] md:max-w-[600px] lg:max-w-[850px] xl:max-w-[950px] px-4 pointer-events-none z-50">
+        {/* Navigation Arrows - Positioning relative to container */}
+        <div className="absolute flex justify-between w-full max-w-[90%] px-4 pointer-events-none z-50 top-1/2 -translate-y-1/2">
              <button 
                 onClick={handlePrev}
                 disabled={flippedIndex === 0}
@@ -333,23 +448,27 @@ const Newspaper: React.FC = () => {
             </button>
         </div>
 
-        {/* Scaled Wrapper for 3D Content */}
-        <div className="transform scale-[0.35] sm:scale-[0.5] md:scale-[0.65] lg:scale-[0.85] xl:scale-100 transition-transform duration-300 origin-center flex items-center justify-center pointer-events-none">
+        {/* Scaled Wrapper for 3D Content - Using Dynamic Scale */}
+        <div 
+            className="transition-transform duration-300 origin-center flex items-center justify-center pointer-events-none"
+            style={{ transform: `scale(${sceneScale})` }}
+        >
             
-            {/* The Stage */}
+            {/* The Stage: Sets the perspective for 3D transformations */}
             <div className="relative w-[800px] h-[500px] perspective-[1500px] flex items-center justify-center pointer-events-auto">
                 
-                {/* --- Mode 1: Interactive Reading Book --- */}
+                {/* Mode 1: Interactive Reading Book */}
                 <div 
-                    className={`relative w-full h-full transition-all duration-1000 ease-in-out ${
+                    className={`relative w-full h-full transition-all ease-in-out ${
                         (foldState === 'READING' || foldState === 'CLOSED_VERTICAL') ? 'opacity-100' : 'opacity-0 pointer-events-none absolute'
                     }`}
                     style={{ 
                         transformStyle: 'preserve-3d',
-                        transform: flippedIndex === 0 ? 'translateX(-200px)' : 'translateX(0px)' 
+                        transform: flippedIndex === 0 ? 'translateX(-200px)' : 'translateX(0px)',
+                        transitionDuration: '1000ms'
                     }}
                 >
-                    {/* Left Base (Empty Desk) */}
+                    {/* Left Base (Empty Desk under the left pages) */}
                     <div 
                         className={`absolute top-0 bottom-0 right-[50%] w-[400px] bg-[#e5e5e5] rounded-l-md shadow-2xl flex items-center justify-center border-r border-neutral-300 transition-opacity duration-500 ${flippedIndex === 0 ? 'opacity-0' : 'opacity-100'}`}
                         style={{ transform: 'translateZ(-50px)' }}
@@ -359,145 +478,151 @@ const Newspaper: React.FC = () => {
 
                     {/* Right Base (Back Cover Backdrop) */}
                     <div 
-                        className="absolute top-0 bottom-0 left-[50%] w-[400px] bg-[#f4f1ea] rounded-r-md shadow-xl p-6 flex flex-col border-l border-neutral-300"
-                        style={{ transform: 'translateZ(-50px)' }}
+                        className="absolute top-0 bottom-0 left-[50%] w-[400px] rounded-r-md shadow-xl p-6 flex flex-col border-l border-neutral-300"
+                        style={{ transform: 'translateZ(-50px)', ...getPaperStyle() }}
                     >
                         <div className="text-xs font-bold text-neutral-400 uppercase tracking-widest border-b border-neutral-300 pb-2 mb-4">Back Cover</div>
                         <div className="flex-1 border-2 border-dashed border-neutral-300 flex items-center justify-center">
-                            <span className="text-neutral-400 font-serif italic">Subscription Card</span>
+                            <span className="text-neutral-400 italic" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>Subscription Card</span>
                         </div>
                     </div>
 
                     {/* Sheet 2 (Pages 5 & 6) */}
                     <div 
-                        className={`absolute top-0 left-[50%] w-[400px] h-full transition-transform duration-1000 ease-[cubic-bezier(0.645,0.045,0.355,1)] transform-style-3d origin-left`}
+                        className={`absolute top-0 left-[50%] w-[400px] h-full transition-transform ease-[cubic-bezier(0.645,0.045,0.355,1)] transform-style-3d origin-left`}
                         style={{ 
-                            transform: `rotateY(${flippedIndex >= 3 ? -180 : 0}deg) translateZ(5px)` 
+                            transform: `rotateY(${flippedIndex >= 3 ? -180 : 0}deg) translateZ(5px)`,
+                            transformStyle: 'preserve-3d',
+                            transitionDuration: `${config.turnDuration}ms`,
+                            zIndex: getSheetZIndex(2)
                         }}
                     >
                         {/* Front (Page 5) */}
                         <div 
-                            className="absolute inset-0 bg-[#f4f1ea] shadow-[inset_10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col" 
-                            style={{ ...faceStyle, transform: 'translateZ(1px)' }}
+                            className="absolute inset-0 shadow-[inset_10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col" 
+                            style={{ ...faceStyle, transform: 'translateZ(1px)', ...getPaperStyle() }}
                         >
-                            <div className="absolute inset-0 bg-[#f4f1ea] -z-10"></div>
-                            <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1 font-serif">
+                            <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
+                            <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
                                 <span>TRAVEL</span>
                                 <span>PAGE 5</span>
                             </div>
-                            <h3 className="text-xl font-serif font-bold text-neutral-800 mb-2 leading-tight">Escaping The Matrix</h3>
+                            <h3 className="text-xl font-bold text-neutral-800 mb-2 leading-tight" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>Escaping The Matrix</h3>
                             <div className="w-full h-40 bg-neutral-200 mb-3 overflow-hidden grayscale contrast-125">
-                                <img src={images[4]} alt="Page 5" className={getImageClassName(images[4])} />
+                                <img src={images[4]} alt="Page 5" className={getImageClassName(images[4])} style={{ backgroundColor: config.paperColor }} />
                             </div>
-                            <div className="flex-1 columns-2 gap-4 text-[9px] text-justify font-serif text-neutral-700 leading-3">
-                                <p className="mb-2">Exploring the hidden corners of the digital world. Why simulations feel more real than reality.</p>
-                                <p>Pack your bags for a journey into the unknown depths of code.</p>
+                            <div className="flex-1 columns-2 gap-4 text-[9px] text-justify text-neutral-700 leading-3" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+                                <p className="mb-2">{pageTexts[4]}</p>
                             </div>
-                            <div className="absolute bottom-4 right-4 z-50 font-serif text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]">5</div>
+                            <div className="absolute bottom-4 right-4 z-50 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>5</div>
                         </div>
                         {/* Back (Page 6) */}
                         <div 
-                            className="absolute inset-0 bg-[#f4f1ea] shadow-[inset_-10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col rounded-l-md" 
-                            style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)' }}
+                            className="absolute inset-0 shadow-[inset_-10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col rounded-l-md" 
+                            style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)', ...getPaperStyle() }}
                         >
-                            <div className="absolute inset-0 bg-[#f4f1ea] -z-10"></div>
+                            <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
                             <div className="flex-1 flex flex-col items-center justify-center border-4 double border-neutral-800 p-4">
-                                <div className="font-serif text-xl font-bold">The End</div>
+                                <div className="text-xl font-bold" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>The End</div>
                             </div>
-                            <div className="absolute bottom-4 left-4 z-50 font-serif text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]">6</div>
+                            <div className="absolute bottom-4 left-4 z-50 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>6</div>
                         </div>
                     </div>
 
                     {/* Sheet 1 (Pages 3 & 4) */}
                     <div 
-                        className={`absolute top-0 left-[50%] w-[400px] h-full transition-transform duration-1000 ease-[cubic-bezier(0.645,0.045,0.355,1)] transform-style-3d origin-left`}
+                        className={`absolute top-0 left-[50%] w-[400px] h-full transition-transform ease-[cubic-bezier(0.645,0.045,0.355,1)] transform-style-3d origin-left`}
                         style={{ 
-                            transform: `rotateY(${flippedIndex >= 2 ? -180 : 0}deg) translateZ(10px)` 
+                            transform: `rotateY(${flippedIndex >= 2 ? -180 : 0}deg) translateZ(10px)`,
+                            transformStyle: 'preserve-3d',
+                            transitionDuration: `${config.turnDuration}ms`,
+                            zIndex: getSheetZIndex(1)
                         }}
                     >
                         {/* Front (Page 3) */}
                         <div 
-                            className="absolute inset-0 bg-[#f4f1ea] shadow-[inset_10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col" 
-                            style={{ ...faceStyle, transform: 'translateZ(1px)' }}
+                            className="absolute inset-0 shadow-[inset_10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col" 
+                            style={{ ...faceStyle, transform: 'translateZ(1px)', ...getPaperStyle() }}
                         >
-                            <div className="absolute inset-0 bg-[#f4f1ea] -z-10"></div>
-                            <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1 font-serif">
+                            <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
+                            <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
                                 <span>LIFESTYLE</span>
                                 <span>PAGE 3</span>
                             </div>
-                            <h3 className="text-xl font-serif font-bold text-neutral-800 mb-2 leading-tight">Modern Tech Aesthetics</h3>
+                            <h3 className="text-xl font-bold text-neutral-800 mb-2 leading-tight" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>Modern Tech Aesthetics</h3>
                             <div className="w-full h-40 bg-neutral-200 mb-3 overflow-hidden grayscale contrast-125 sepia-[.3]">
-                                <img src={images[2]} alt="Page 3" className={getImageClassName(images[2])} />
+                                <img src={images[2]} alt="Page 3" className={getImageClassName(images[2])} style={{ backgroundColor: config.paperColor }} />
                             </div>
-                            <div className="flex-1 columns-2 gap-4 text-[9px] text-justify font-serif text-neutral-700 leading-3">
-                                <p className="mb-2">In a world dominated by screens, the return to tactile design is imminent. We explore the latest trends in retro-futurism.</p>
-                                <p>The convergence of digital and physical mediums creates a new canvas for creators.</p>
+                            <div className="flex-1 columns-2 gap-4 text-[9px] text-justify text-neutral-700 leading-3" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+                                <p className="mb-2">{pageTexts[2]}</p>
                             </div>
-                            <div className="absolute bottom-4 right-4 z-50 font-serif text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]">3</div>
+                            <div className="absolute bottom-4 right-4 z-50 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>3</div>
                         </div>
                         {/* Back (Page 4) */}
                         <div 
-                            className="absolute inset-0 bg-[#f4f1ea] shadow-[inset_-10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col rounded-l-md" 
-                            style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)' }}
+                            className="absolute inset-0 shadow-[inset_-10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col rounded-l-md" 
+                            style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)', ...getPaperStyle() }}
                         >
-                            <div className="absolute inset-0 bg-[#f4f1ea] -z-10"></div>
-                            <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1 font-serif">
+                            <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
+                            <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
                                 <span>SCIENCE</span>
                                 <span>PAGE 4</span>
                             </div>
-                            <h3 className="text-xl font-serif font-bold text-neutral-800 mb-2 leading-tight">Quantum CSS</h3>
+                            <h3 className="text-xl font-bold text-neutral-800 mb-2 leading-tight" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>Quantum CSS</h3>
                             <div className="w-full h-40 bg-neutral-200 mb-3 overflow-hidden grayscale contrast-125">
-                                <img src={images[3]} alt="Page 4" className={getImageClassName(images[3])} />
+                                <img src={images[3]} alt="Page 4" className={getImageClassName(images[3])} style={{ backgroundColor: config.paperColor }} />
                             </div>
-                            <div className="flex-1 text-[9px] text-justify font-serif text-neutral-700 leading-3">
-                                <p>Can an element be both visible and hidden? Schrödinger's Div explains all.</p>
+                            <div className="flex-1 text-[9px] text-justify text-neutral-700 leading-3" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+                                <p>{pageTexts[3]}</p>
                             </div>
-                            <div className="absolute bottom-4 left-4 z-50 font-serif text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]">4</div>
+                            <div className="absolute bottom-4 left-4 z-50 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>4</div>
                         </div>
                     </div>
 
                     {/* Sheet 0 (Cover & Page 2) */}
                     <div 
-                        className={`absolute top-0 left-[50%] w-[400px] h-full transition-transform duration-1000 ease-[cubic-bezier(0.645,0.045,0.355,1)] transform-style-3d origin-left`}
+                        className={`absolute top-0 left-[50%] w-[400px] h-full transition-transform ease-[cubic-bezier(0.645,0.045,0.355,1)] transform-style-3d origin-left`}
                         style={{ 
-                            transform: `rotateY(${flippedIndex >= 1 ? -180 : 0}deg) translateZ(15px)` 
+                            transform: `rotateY(${flippedIndex >= 1 ? -180 : 0}deg) translateZ(15px)`,
+                            transformStyle: 'preserve-3d',
+                            transitionDuration: `${config.turnDuration}ms`,
+                            zIndex: getSheetZIndex(0)
                         }}
                     >
                         {/* Front (Cover) */}
                         <div 
-                            className="absolute inset-0 bg-[#f4f1ea]" 
-                            style={{ ...faceStyle, transform: 'translateZ(1px)' }}
+                            className="absolute inset-0" 
+                            style={{ ...faceStyle, transform: 'translateZ(1px)', ...getPaperStyle() }}
                         >
                             {renderCoverContent()}
                         </div>
                         {/* Back (Page 2) */}
                         <div 
-                            className="absolute inset-0 bg-[#f4f1ea] shadow-[inset_-10px_0_20px_rgba(0,0,0,0.05)] p-6 flex flex-col rounded-l-md" 
-                            style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)' }}
+                            className="absolute inset-0 shadow-[inset_-10px_0_20px_rgba(0,0,0,0.05)] p-6 flex flex-col rounded-l-md" 
+                            style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)', ...getPaperStyle() }}
                         >
-                            <div className="absolute inset-0 bg-[#f4f1ea] -z-10"></div>
-                            <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1 font-serif">
+                            <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
+                            <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
                                 <span>OPINION</span>
                                 <span>PAGE 2</span>
                             </div>
                             <div className="flex flex-col h-full">
                                 <div className="w-full h-1/2 bg-neutral-800 mb-4 overflow-hidden relative">
-                                    <img src={images[1]} alt="Page 2" className={getImageClassName(images[1])} />
+                                    <img src={images[1]} alt="Page 2" className={getImageClassName(images[1])} style={{ backgroundColor: config.paperColor }} />
                                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                         {!images[1].startsWith('data:') && <h3 className="text-white font-serif text-2xl font-bold text-center px-4 drop-shadow-md">"Why We Love Animation"</h3>}
                                     </div>
                                 </div>
-                                <div className="columns-2 gap-3 text-[9px] font-serif text-justify leading-3 text-neutral-700">
-                                    <p>Unlike video, CSS animations are lightweight and crisp. They breathe life into the DOM without the weight of heavy assets.</p>
-                                    <p className="mt-2">This newspaper itself is merely a collection of divs, rotated in 3D space. No WebGL, no canvas. Just pure geometry and style.</p>
+                                <div className="columns-2 gap-3 text-[9px] text-justify leading-3 text-neutral-700" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+                                    <p>{pageTexts[1]}</p>
                                 </div>
                             </div>
-                            <div className="absolute bottom-4 left-4 z-50 font-serif text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]">2</div>
+                            <div className="absolute bottom-4 left-4 z-50 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>2</div>
                         </div>
                     </div>
                 </div>
 
-                {/* --- Mode 2: Folding Prop --- */}
+                {/* Mode 2: Folding Prop */}
                 <div 
                     className={`relative w-[400px] h-[500px] transition-all ease-[cubic-bezier(0.645,0.045,0.355,1)] ${
                         (foldState === 'FOLDING_HORIZONTAL' || foldState === 'ON_TABLE') ? 'opacity-100' : 'opacity-0 pointer-events-none absolute'
@@ -505,18 +630,18 @@ const Newspaper: React.FC = () => {
                     style={{
                         transformStyle: 'preserve-3d',
                         transform: getPropTransform(),
-                        transitionDuration: `${FOLD_DURATION}ms`
+                        transitionDuration: `${config.foldDuration}ms`
                     }}
                     onClick={handleUnfold}
                 >
-                    {/* Hover hint */}
+                    {/* Hover hint when folded on table */}
                     <div className={`absolute -top-32 left-1/2 -translate-x-1/2 text-white bg-black/50 px-4 py-2 rounded-full backdrop-blur-md opacity-0 transition-opacity duration-300 pointer-events-none flex items-center gap-2 ${foldState === 'ON_TABLE' ? 'group-hover:opacity-100' : ''}`} style={{ transform: 'rotateX(-70deg)' }}>
                         <Maximize2 size={16} />
                         <span>Click to Unfold</span>
                     </div>
 
                     {/* Top Half (Visible & Static) */}
-                    <div className="absolute top-0 w-full h-[250px] overflow-hidden z-20 bg-[#f4f1ea] backface-hidden shadow-md">
+                    <div className="absolute top-0 w-full h-[250px] overflow-hidden z-20 backface-hidden shadow-md" style={getPaperStyle()}>
                         <div className="w-full h-[500px] relative">
                             {renderCoverContent()}
                         </div>
@@ -524,7 +649,7 @@ const Newspaper: React.FC = () => {
                             className="absolute bottom-0 w-full h-8 bg-gradient-to-t from-black/20 to-transparent pointer-events-none transition-opacity"
                             style={{ 
                                 opacity: (foldState === 'FOLDING_HORIZONTAL' || foldState === 'ON_TABLE') ? 1 : 0, 
-                                transitionDuration: `${FOLD_DURATION}ms`,
+                                transitionDuration: `${config.foldDuration}ms`,
                                 transitionTimingFunction: 'cubic-bezier(0.645,0.045,0.355,1)'
                             }} 
                         />
@@ -535,10 +660,10 @@ const Newspaper: React.FC = () => {
                         className="absolute top-[250px] w-full h-[250px] origin-[50%_0] transform-style-3d transition-transform ease-[cubic-bezier(0.645,0.045,0.355,1)] z-10"
                         style={{
                             transform: (foldState === 'FOLDING_HORIZONTAL' || foldState === 'ON_TABLE') ? 'rotateX(-179deg)' : 'rotateX(0deg)',
-                            transitionDuration: `${FOLD_DURATION}ms`
+                            transitionDuration: `${config.foldDuration}ms`
                         }}
                     >
-                        <div className="absolute inset-0 overflow-hidden bg-[#f4f1ea] backface-hidden">
+                        <div className="absolute inset-0 overflow-hidden backface-hidden" style={getPaperStyle()}>
                             <div className="w-full h-[500px] relative -top-[250px]">
                                 {renderCoverContent()}
                             </div>
@@ -546,7 +671,7 @@ const Newspaper: React.FC = () => {
                                 className="absolute inset-0 bg-gradient-to-b from-black/30 to-transparent pointer-events-none transition-opacity" 
                                 style={{ 
                                     opacity: (foldState === 'FOLDING_HORIZONTAL' || foldState === 'ON_TABLE') ? 1 : 0,
-                                    transitionDuration: `${FOLD_DURATION}ms`,
+                                    transitionDuration: `${config.foldDuration}ms`,
                                     transitionTimingFunction: 'cubic-bezier(0.645,0.045,0.355,1)'
                                 }} 
                             />
@@ -567,78 +692,270 @@ const Newspaper: React.FC = () => {
         </div>
       </div>
 
-      {/* Control Panel */}
-      <div className="bg-neutral-900 border-t border-neutral-800 p-4 md:p-6 z-30 overflow-y-auto h-auto max-h-[30vh] md:h-64">
-        <div className="max-w-4xl mx-auto flex flex-col h-full justify-between gap-4">
-            <div>
-                <div className="flex justify-between items-center mb-3">
-                    <h3 className="text-xs md:text-sm font-bold text-neutral-400 uppercase tracking-widest flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                        Editor's Desk
-                    </h3>
+      {/* Draggable Divider */}
+      <div 
+        onMouseDown={handleMouseDown}
+        className="h-2 bg-neutral-800 hover:bg-neutral-700 cursor-row-resize flex items-center justify-center z-40 transition-colors shrink-0 border-t border-b border-neutral-800"
+      >
+        <div className="w-12 h-1 bg-neutral-600 rounded-full flex items-center justify-center gap-0.5">
+           <GripHorizontal size={12} className="text-neutral-400 opacity-50"/>
+        </div>
+      </div>
+
+      {/* Control Panel / Editor's Desk */}
+      <div 
+        style={{ height: controlPanelHeight }} 
+        className="bg-neutral-900 z-30 overflow-y-auto shrink-0"
+      >
+         <div className="p-4 md:p-6 max-w-4xl mx-auto flex flex-col gap-6">
+            
+            {/* Top Row: Fold Button & Editor Controls */}
+            <div className="flex flex-col md:flex-row gap-4 items-start md:items-end justify-between">
+                <div className="flex-1 w-full space-y-4">
+                    {/* Header */}
+                    <div className="flex justify-between items-center">
+                        <h3 className="text-xs md:text-sm font-bold text-neutral-400 uppercase tracking-widest flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                            Editor's Desk
+                        </h3>
+                        
+                        {/* PDF Upload Button */}
+                        <div className="relative">
+                            <input 
+                                type="file" 
+                                accept=".pdf" 
+                                onChange={handlePdfUpload}
+                                className="hidden" 
+                                ref={fileInputRef}
+                            />
+                            <button 
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={isPdfLoading}
+                                className="flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10px] md:text-xs px-3 py-1.5 rounded-full border border-neutral-700 transition-all"
+                            >
+                                {isPdfLoading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                                {isPdfLoading ? 'Processing PDF...' : 'Import PDF Pages'}
+                            </button>
+                        </div>
+                    </div>
                     
-                    {/* PDF Upload Button */}
-                    <div className="relative">
-                        <input 
-                            type="file" 
-                            accept=".pdf" 
-                            onChange={handlePdfUpload}
-                            className="hidden" 
-                            ref={fileInputRef}
-                        />
-                        <button 
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={isPdfLoading}
-                            className="flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10px] md:text-xs px-3 py-1.5 rounded-full border border-neutral-700 transition-all"
-                        >
-                            {isPdfLoading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-                            {isPdfLoading ? 'Processing PDF...' : 'Import PDF Pages'}
-                        </button>
-                    </div>
-                </div>
-                
-                <div className="grid grid-cols-2 md:grid-cols-6 gap-2 md:gap-3">
-                    <div className="space-y-1 col-span-2 md:col-span-1">
-                        <label className="text-[10px] text-neutral-500 font-mono">HEADLINE</label>
-                        <input 
-                            type="text" 
-                            value={headline}
-                            onChange={(e) => setHeadline(e.target.value)}
-                            className="w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-green-500"
-                        />
-                    </div>
-                    {images.map((img, i) => (
-                        <div key={i} className="space-y-1">
-                            <label className="text-[10px] text-neutral-500 font-mono flex items-center gap-1">
-                                <FileText size={8} />
-                                {i === 0 ? 'COVER' : `PG ${i + 1}`}
-                            </label>
+                    {/* Inputs */}
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-2 md:gap-3">
+                        {/* Publication Title - Spans 2 cols */}
+                        <div className="space-y-1 col-span-2 md:col-span-1">
+                            <label className="text-[10px] text-neutral-500 font-mono">PUBLICATION</label>
                             <input 
                                 type="text" 
-                                value={img.length > 50 && img.startsWith('data:') ? 'PDF Page Loaded' : img}
-                                onChange={(e) => updateImage(i, e.target.value)}
-                                disabled={img.startsWith('data:')}
-                                className={`w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-300 focus:outline-none focus:border-green-500 truncate ${img.startsWith('data:') ? 'italic text-green-500/70 cursor-not-allowed' : ''}`}
+                                value={config.publicationTitle}
+                                onChange={(e) => setConfig({...config, publicationTitle: e.target.value})}
+                                className="w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-green-500"
                             />
                         </div>
-                    ))}
-                </div>
-            </div>
 
-            {/* Fold Control Button */}
-            <div className="flex justify-center md:mt-4">
+                        <div className="space-y-1 col-span-2 md:col-span-1">
+                            <label className="text-[10px] text-neutral-500 font-mono">HEADLINE</label>
+                            <input 
+                                type="text" 
+                                value={headline}
+                                onChange={(e) => setHeadline(e.target.value)}
+                                className="w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-green-500"
+                            />
+                        </div>
+                        
+                        {/* Font Selection */}
+                        <div className="space-y-1 col-span-2 md:col-span-1">
+                            <label className="text-[10px] text-neutral-500 font-mono">TYPOGRAPHY</label>
+                            <div className="flex gap-1">
+                                <button 
+                                    onClick={() => setConfig({...config, fontStyle: 'classic'})}
+                                    className={`flex-1 px-1 py-1 rounded text-[10px] border ${config.fontStyle === 'classic' ? 'bg-neutral-700 border-neutral-500 text-white' : 'bg-neutral-800 border-neutral-700 text-neutral-400'}`}
+                                >
+                                    Classic
+                                </button>
+                                <button 
+                                    onClick={() => setConfig({...config, fontStyle: 'modern'})}
+                                    className={`flex-1 px-1 py-1 rounded text-[10px] border ${config.fontStyle === 'modern' ? 'bg-neutral-700 border-neutral-500 text-white' : 'bg-neutral-800 border-neutral-700 text-neutral-400'}`}
+                                >
+                                    Modern
+                                </button>
+                                <button 
+                                    onClick={() => setConfig({...config, fontStyle: 'typewriter'})}
+                                    className={`flex-1 px-1 py-1 rounded text-[10px] border ${config.fontStyle === 'typewriter' ? 'bg-neutral-700 border-neutral-500 text-white' : 'bg-neutral-800 border-neutral-700 text-neutral-400'}`}
+                                >
+                                    Mono
+                                </button>
+                            </div>
+                        </div>
+                        
+                        {/* Page Content & Images */}
+                        <div className="col-span-2 md:col-span-3 grid grid-cols-2 md:grid-cols-5 gap-2">
+                            {images.map((img, i) => (
+                                <div key={i} className="space-y-1 group relative">
+                                    <label className="text-[10px] text-neutral-500 font-mono flex items-center justify-between">
+                                        <span>{i === 0 ? 'COVER' : `PG ${i + 1}`}</span>
+                                        <FileText size={8} />
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        value={img.length > 50 && img.startsWith('data:') ? 'PDF Asset' : img}
+                                        onChange={(e) => updateImage(i, e.target.value)}
+                                        disabled={img.startsWith('data:')}
+                                        placeholder="Image URL"
+                                        className={`w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-[10px] text-neutral-300 focus:outline-none focus:border-green-500 truncate mb-1`}
+                                    />
+                                    <textarea
+                                        value={pageTexts[i]}
+                                        onChange={(e) => updatePageText(i, e.target.value)}
+                                        placeholder="Content..."
+                                        className="w-full h-8 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-[9px] text-neutral-400 focus:outline-none focus:border-green-500 resize-none leading-tight"
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Main Action Button */}
                 <button
                     onClick={handleFold}
                     disabled={foldState !== 'READING'}
-                    className={`flex items-center gap-2 px-6 py-2 rounded-full font-serif text-sm border transition-all shadow-lg active:scale-95 ${
+                    className={`flex items-center gap-2 px-6 py-3 rounded-xl font-serif text-sm border transition-all shadow-lg active:scale-95 whitespace-nowrap ${
                         foldState !== 'READING'
                         ? 'bg-neutral-800/50 text-neutral-600 border-neutral-800 cursor-default'
-                        : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border-neutral-700 hover:shadow-xl'
+                        : 'bg-gradient-to-r from-neutral-700 to-neutral-800 hover:from-neutral-600 hover:to-neutral-700 text-white border-neutral-600 hover:border-neutral-500 hover:shadow-xl'
                     }`}
                 >
-                    <ArrowDownToLine size={16} />
+                    <ArrowDownToLine size={18} />
                     {foldState === 'READING' ? 'Fold & Place on Table' : 'Folded'}
                 </button>
+            </div>
+
+            {/* Production Controls Panel */}
+            <div className="border-t border-neutral-800 pt-4">
+                 <div className="flex items-center gap-2 mb-4">
+                    <Settings size={14} className="text-neutral-500" />
+                    <h4 className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Production Settings</h4>
+                 </div>
+                 
+                 <div className="grid grid-cols-1 md:grid-cols-5 gap-6 bg-black/20 p-4 rounded-lg border border-neutral-800/50">
+                    
+                    {/* 1. Fold Speed */}
+                    <div className="space-y-2">
+                        <div className="flex justify-between text-[10px] text-neutral-400 font-mono uppercase">
+                            <span className="flex items-center gap-1"><Clock size={10} /> Fold Speed</span>
+                            <span>{config.foldDuration}ms</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            min="500" 
+                            max="3000" 
+                            step="100" 
+                            value={config.foldDuration}
+                            onChange={(e) => setConfig({...config, foldDuration: Number(e.target.value)})}
+                            className="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-neutral-300 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-white"
+                        />
+                        <div className="flex justify-between text-[9px] text-neutral-600">
+                            <span>Fast</span>
+                            <span>Slow</span>
+                        </div>
+                    </div>
+
+                    {/* 2. Turn Speed */}
+                    <div className="space-y-2">
+                        <div className="flex justify-between text-[10px] text-neutral-400 font-mono uppercase">
+                            <span className="flex items-center gap-1"><MoveHorizontal size={10} /> Turn Speed</span>
+                            <span>{config.turnDuration}ms</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            min="300" 
+                            max="2000" 
+                            step="100" 
+                            value={config.turnDuration}
+                            onChange={(e) => setConfig({...config, turnDuration: Number(e.target.value)})}
+                            className="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-neutral-300 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-white"
+                        />
+                        <div className="flex justify-between text-[9px] text-neutral-600">
+                            <span>Zip</span>
+                            <span>Languid</span>
+                        </div>
+                    </div>
+
+                    {/* 3. Audio Control */}
+                    <div className="space-y-2">
+                        <div className="flex justify-between text-[10px] text-neutral-400 font-mono uppercase">
+                            <span className="flex items-center gap-1">
+                                {config.isMuted ? <VolumeX size={10} /> : <Volume2 size={10} />}
+                                Audio Level
+                            </span>
+                            <span>{config.isMuted ? 'MUTE' : `${Math.round(config.volume * 100)}%`}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button 
+                                onClick={() => setConfig({...config, isMuted: !config.isMuted})}
+                                className={`p-1 rounded hover:bg-neutral-700 ${config.isMuted ? 'text-red-400' : 'text-neutral-400'}`}
+                            >
+                                {config.isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                            </button>
+                            <input 
+                                type="range" 
+                                min="0" 
+                                max="1" 
+                                step="0.05" 
+                                value={config.volume}
+                                disabled={config.isMuted}
+                                onChange={(e) => setConfig({...config, volume: Number(e.target.value)})}
+                                className="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-neutral-300 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-white disabled:opacity-50"
+                            />
+                        </div>
+                    </div>
+
+                    {/* 4. Paper Stock */}
+                    <div className="space-y-2">
+                        <div className="flex justify-between text-[10px] text-neutral-400 font-mono uppercase">
+                             <span className="flex items-center gap-1"><Palette size={10} /> Paper Stock</span>
+                             <span className="w-3 h-3 rounded-full border border-neutral-600" style={{background: config.paperColor}}></span>
+                        </div>
+                        <div className="flex gap-2">
+                            {['#f4f1ea', '#ffffff', '#e2e8f0', '#fef3c7', '#1e293b'].map((color) => (
+                                <button
+                                    key={color}
+                                    onClick={() => setConfig({...config, paperColor: color})}
+                                    className={`w-6 h-6 rounded-full border-2 transition-transform hover:scale-110 ${config.paperColor === color ? 'border-green-500 scale-110' : 'border-neutral-600'}`}
+                                    style={{backgroundColor: color}}
+                                    title={color === '#1e293b' ? 'Dark Mode' : color === '#fef3c7' ? 'Vintage' : 'Standard'}
+                                />
+                            ))}
+                            <input 
+                                type="color" 
+                                value={config.paperColor}
+                                onChange={(e) => setConfig({...config, paperColor: e.target.value})}
+                                className="w-6 h-6 rounded overflow-hidden border-0 p-0 bg-transparent cursor-pointer"
+                            />
+                        </div>
+                    </div>
+
+                    {/* 5. Studio Lighting */}
+                    <div className="space-y-2">
+                        <div className="flex justify-between text-[10px] text-neutral-400 font-mono uppercase">
+                            <span className="flex items-center gap-1"><Sun size={10} /> Lighting</span>
+                            <span>{Math.round(config.lighting * 100)}%</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            min="0.2" 
+                            max="1.5" 
+                            step="0.1" 
+                            value={config.lighting}
+                            onChange={(e) => setConfig({...config, lighting: Number(e.target.value)})}
+                            className="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-neutral-300 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:bg-white"
+                        />
+                         <div className="flex justify-between text-[9px] text-neutral-600">
+                            <span>Dim</span>
+                            <span>Bright</span>
+                        </div>
+                    </div>
+                 </div>
             </div>
         </div>
       </div>
