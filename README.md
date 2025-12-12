@@ -1,20 +1,41 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# CineCSS: Cinematic Pure CSS Animations
 
-# Run and deploy your AI Studio app
+CineCSS is a collection of iconic movie scenes and interactive experiences recreated using React, Tailwind CSS, and pure CSS animations. It demonstrates the power of modern web technologies to create immersive, lightweight, and performant visual narratives without heavy video assets.
 
-This contains everything you need to run your app locally.
+## The Daily Code: Revolutionizing Digital Storefronts
 
-View your app in AI Studio: https://ai.studio/apps/drive/1imyATBgw3kT5aU0v8Tv5-jv3TvN28xRX
+The core feature of this project, **"The Daily Code"** (and its flying variant), showcases how tactile, folding interfaces can transform web and mobile applications.
 
-## Run Locally
+### Usefulness in Web & Mobile Apps
 
-**Prerequisites:**  Node.js
+**1. Emotional Commerce**
+Transform the mundane "Checkout" click into a memorable event. Imagine a user completing a purchase, and instead of a simple spinner, their receipt folds into a paper airplane and flies off to a fulfillment center map. This creates a moment of delight that enhances brand recall.
 
+**2. Editorial Storytelling**
+Replace infinite scrolls with interactive, page-turning newspapers. This format allows for dense information (specs, reviews, stories) to live in compact spaces, revealed through natural gestures rather than endless vertical scrolling.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+**3. Performance**
+Unlike video backgrounds which are bandwidth-heavy and CPU-intensive, these scenes are built with DOM elements and CSS transforms. They remain crisp at any resolution and load instantly, ensuring a smooth experience even on mobile data connections.
+
+### Interactive Demos & Sharing
+
+You can share specific scenes with external audiences using URL query parameters. This allows product teams to link directly to a specific "mood" or feature demonstration.
+
+- **Standard Newspaper Interaction:**
+  [Launch "The Daily Code"](/?scene=NEWSPAPER)
+  *Experience the tactile page-turning engine.*
+
+- **Commerce Showcase Write-up:**
+  [Launch "Commerce Experience"](/?scene=COMMERCE_SHOWCASE)
+  *View the dedicated write-up on how these features apply to buying experiences, pre-loaded into the folding airplane interface.*
+
+- **Interactive Folding:**
+  [Launch "Fold & Fly"](/?scene=NEWSPAPER_AIRPLANE)
+  *Edit the content and send it flying.*
+
+## Tech Stack
+- **React 19**
+- **Tailwind CSS**
+- **Lucide Icons**
+- **Google GenAI SDK** (for AI Director mode)
+- **PDF.js** (for importing real content into the newspaper)

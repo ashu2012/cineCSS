@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import SceneSelector from './components/SceneSelector';
 import Hal9000 from './components/scenes/Hal9000';
 import MatrixRain from './components/scenes/MatrixRain';
@@ -7,8 +7,10 @@ import Hyperspace from './components/scenes/Hyperspace';
 import Noir from './components/scenes/Noir';
 import StockNap from './components/scenes/StockNap';
 import Newspaper from './components/scenes/Newspaper';
+import FlyingAirplaneNewspaper from './components/scenes/FlyingAirplaneNewspaper';
 import DirectorScene from './components/scenes/DirectorScene';
 import DirectorPanel from './components/DirectorPanel';
+import Documentation from './components/scenes/Documentation';
 import { SceneConfig, SceneType, DirectorParams } from './types';
 
 const scenes: SceneConfig[] = [
@@ -18,6 +20,27 @@ const scenes: SceneConfig[] = [
     movie: "Harry Potter",
     year: "2001",
     description: "A magical newspaper with moving images and 3D page turning interactions."
+  },
+  {
+    id: SceneType.COMMERCE_SHOWCASE,
+    title: "Commerce Experience",
+    movie: "Product Demo",
+    year: "2024",
+    description: "A showcase of how 'The Daily Code' folding mechanics can revolutionize digital product storytelling."
+  },
+  {
+    id: SceneType.NEWSPAPER_AIRPLANE,
+    title: "Fold & Fly",
+    movie: "Interactive",
+    year: "2024",
+    description: "Edit your newspaper and launch it into the sky. A playful take on content delivery."
+  },
+  {
+    id: SceneType.DOCUMENTATION,
+    title: "Documentation",
+    movie: "README.md",
+    year: "2024",
+    description: "Project documentation, write-ups, and usage instructions."
   },
   {
     id: SceneType.HAL_9000,
@@ -74,6 +97,29 @@ const App: React.FC = () => {
   const [currentSceneId, setCurrentSceneId] = useState<SceneType>(SceneType.NEWSPAPER);
   const [directorParams, setDirectorParams] = useState<DirectorParams | null>(null);
 
+  // URL Parameter Handling: Initial Load
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sceneParam = params.get('scene');
+    
+    // Check if the param is a valid SceneType
+    const isValidScene = Object.values(SceneType).includes(sceneParam as SceneType);
+    
+    if (isValidScene) {
+      setCurrentSceneId(sceneParam as SceneType);
+    }
+  }, []);
+
+  // Update URL whenever scene changes
+  const handleSceneSelect = (id: SceneType) => {
+    setCurrentSceneId(id);
+    
+    // Update URL without reloading
+    const url = new URL(window.location.href);
+    url.searchParams.set('scene', id);
+    window.history.pushState({}, '', url);
+  };
+
   const currentSceneConfig = scenes.find(s => s.id === currentSceneId);
 
   const renderScene = () => {
@@ -92,6 +138,12 @@ const App: React.FC = () => {
         return <StockNap />;
       case SceneType.NEWSPAPER:
         return <Newspaper />;
+      case SceneType.NEWSPAPER_AIRPLANE:
+        return <FlyingAirplaneNewspaper />;
+      case SceneType.COMMERCE_SHOWCASE:
+        return <FlyingAirplaneNewspaper />;
+      case SceneType.DOCUMENTATION:
+        return <Documentation />;
       case SceneType.AI_DIRECTOR:
         return directorParams ? (
           <DirectorScene params={directorParams} />
@@ -102,7 +154,7 @@ const App: React.FC = () => {
           </div>
         );
       default:
-        return <Newspaper />;
+        return <FlyingAirplaneNewspaper />;
     }
   };
 
@@ -113,7 +165,7 @@ const App: React.FC = () => {
         <SceneSelector 
           scenes={scenes} 
           currentSceneId={currentSceneId} 
-          onSelect={setCurrentSceneId} 
+          onSelect={handleSceneSelect} 
         />
       </div>
 
@@ -125,7 +177,10 @@ const App: React.FC = () => {
         <div className={`absolute top-4 left-4 md:top-8 md:left-8 z-20 pointer-events-none ${
           currentSceneId === SceneType.STOCK_NAP || 
           currentSceneId === SceneType.MATRIX_PILLS || 
-          currentSceneId === SceneType.NEWSPAPER ? 'hidden' : ''
+          currentSceneId === SceneType.NEWSPAPER ||
+          currentSceneId === SceneType.NEWSPAPER_AIRPLANE ||
+          currentSceneId === SceneType.COMMERCE_SHOWCASE ||
+          currentSceneId === SceneType.DOCUMENTATION ? 'hidden' : ''
         }`}>
           <h2 className="text-2xl md:text-4xl font-bold text-white/90 tracking-tighter mix-blend-difference mb-1">
             {currentSceneConfig?.title}

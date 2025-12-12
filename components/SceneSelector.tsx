@@ -1,6 +1,6 @@
 import React from 'react';
 import { SceneConfig, SceneType } from '../types';
-import { Film, Eye, Zap, CloudRain, Search, Banknote, Pill, Newspaper } from 'lucide-react';
+import { Film, Eye, Zap, CloudRain, Search, Banknote, Pill, Newspaper, Send, ShoppingBag, FileText } from 'lucide-react';
 
 interface SceneSelectorProps {
   scenes: SceneConfig[];
@@ -18,6 +18,9 @@ const SceneSelector: React.FC<SceneSelectorProps> = ({ scenes, currentSceneId, o
       case SceneType.NOIR: return <Film size={18} />;
       case SceneType.STOCK_NAP: return <Banknote size={18} />;
       case SceneType.NEWSPAPER: return <Newspaper size={18} />;
+      case SceneType.NEWSPAPER_AIRPLANE: return <Send size={18} />;
+      case SceneType.COMMERCE_SHOWCASE: return <ShoppingBag size={18} />;
+      case SceneType.DOCUMENTATION: return <FileText size={18} />;
       case SceneType.AI_DIRECTOR: return <Search size={18} />;
       default: return <Film size={18} />;
     }

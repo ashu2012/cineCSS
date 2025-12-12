@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ArrowLeft, ArrowRight, ArrowDownToLine, Maximize2, Upload, FileText, Loader2, Settings, Volume2, VolumeX, Clock, Sun, Palette, Zap, Type, MoveHorizontal, GripHorizontal } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowDownToLine, Maximize2, Upload, FileText, Loader2, Settings, Volume2, VolumeX, Clock, Sun, Palette, Zap, Type, MoveHorizontal, GripHorizontal, Pencil, Check, Move, MousePointer2, X, Plus, Image as ImageIcon, Trash2, Link as LinkIcon, ExternalLink } from 'lucide-react';
 // @ts-ignore
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -28,11 +28,153 @@ interface SceneConfig {
     publicationTitle: string;
 }
 
+interface Box {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+
+interface PageElement extends Box {
+    id: string;
+    type: 'headline' | 'text' | 'image';
+    content: string;
+    link?: string;
+    zIndex: number;
+}
+
 const FONT_STYLES: Record<FontStyle, React.CSSProperties> = {
     classic: { fontFamily: '"Times New Roman", Times, serif' },
     typewriter: { fontFamily: '"Courier New", Courier, monospace', letterSpacing: '-0.5px' },
     modern: { fontFamily: '"Inter", sans-serif', letterSpacing: '-0.2px' }
 };
+
+// --- Resizable Box Helper ---
+const ResizableBox: React.FC<{
+    element: PageElement;
+    onUpdate: (newBox: Partial<PageElement>) => void;
+    onDelete: () => void;
+    isActive: boolean;
+    scale: number;
+    children: React.ReactNode;
+}> = ({ element, onUpdate, onDelete, isActive, scale, children }) => {
+    const nodeRef = useRef<HTMLDivElement>(null);
+    const draggingRef = useRef<{ startX: number; startY: number; startBox: Box; mode: 'move' | 'resize' } | null>(null);
+
+    const handleMouseDown = (e: React.MouseEvent, mode: 'move' | 'resize') => {
+        if (!isActive) return;
+        e.stopPropagation();
+        e.preventDefault();
+        draggingRef.current = {
+            startX: e.clientX,
+            startY: e.clientY,
+            startBox: { x: element.x, y: element.y, w: element.w, h: element.h },
+            mode
+        };
+    };
+
+    useEffect(() => {
+        if (!isActive) return;
+
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!draggingRef.current) return;
+            const { startX, startY, startBox, mode } = draggingRef.current;
+            
+            // Adjust delta by the scene scale to ensure 1:1 mouse tracking
+            const deltaX = (e.clientX - startX) / scale;
+            const deltaY = (e.clientY - startY) / scale;
+
+            if (mode === 'move') {
+                onUpdate({
+                    x: startBox.x + deltaX,
+                    y: startBox.y + deltaY
+                });
+            } else {
+                onUpdate({
+                    w: Math.max(20, startBox.w + deltaX),
+                    h: Math.max(20, startBox.h + deltaY)
+                });
+            }
+        };
+
+        const handleMouseUp = () => {
+            draggingRef.current = null;
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isActive, onUpdate, scale]);
+
+    const isLink = !!element.link && !isActive;
+
+    return (
+        <div
+            ref={nodeRef}
+            className={`absolute ${isActive ? 'cursor-move ring-2 ring-blue-500 hover:bg-black/5' : ''}`}
+            style={{
+                left: element.x,
+                top: element.y,
+                width: element.w,
+                height: element.h,
+                zIndex: isActive ? 1000 : element.zIndex
+            }}
+            onMouseDown={(e) => handleMouseDown(e, 'move')}
+        >
+            {/* Render Content */}
+            <div className={`w-full h-full overflow-hidden ${isActive ? 'pointer-events-none' : 'pointer-events-auto'}`}>
+                {isLink ? (
+                    <a 
+                        href={element.link} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="block w-full h-full cursor-pointer hover:opacity-80 transition-opacity relative group"
+                        title={element.link}
+                    >   
+                        {/* Link Hint Overlay */}
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-blue-500/10 transition-colors flex items-center justify-center">
+                            <ExternalLink size={16} className="text-white opacity-0 group-hover:opacity-100 drop-shadow-md" />
+                        </div>
+                        {children}
+                    </a>
+                ) : (
+                    children
+                )}
+            </div>
+
+            {/* Render Edit UI */}
+            {isActive && (
+                <>
+                     {/* Resize Handle */}
+                    <div
+                        className="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 cursor-nwse-resize z-50 flex items-center justify-center"
+                        onMouseDown={(e) => handleMouseDown(e, 'resize')}
+                    >
+                        <div className="w-2 h-2 border-r border-b border-white"></div>
+                    </div>
+                    {/* Type Label */}
+                    <div className="absolute -top-5 left-0 bg-blue-500 text-white text-[9px] px-1 rounded-t uppercase font-bold tracking-wider pointer-events-none whitespace-nowrap flex items-center gap-1">
+                        {element.type}
+                        {element.link && <LinkIcon size={8} />}
+                    </div>
+                    {/* Delete Button */}
+                    <button 
+                        onMouseDown={(e) => e.stopPropagation()} // Prevent drag start
+                        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                        className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-sm z-50 transition-transform hover:scale-110 active:scale-90 cursor-pointer"
+                        title="Remove Element"
+                    >
+                        <X size={10} />
+                    </button>
+                </>
+            )}
+        </div>
+    );
+};
+
 
 const Newspaper: React.FC = () => {
   // --- State Management ---
@@ -40,6 +182,8 @@ const Newspaper: React.FC = () => {
   // Layout State
   const [controlPanelHeight, setControlPanelHeight] = useState(350);
   const [sceneScale, setSceneScale] = useState(1);
+  const [isEditMode, setIsEditMode] = useState(false);
+
   const sceneWrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
@@ -56,24 +200,77 @@ const Newspaper: React.FC = () => {
       publicationTitle: 'THE CINE TIMES'
   });
 
-  // Dynamic content states
-  const [headline, setHeadline] = useState('AI TAKES OVER HOLLYWOOD');
-  
-  const [pageTexts, setPageTexts] = useState<string[]>([
-      "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.", // Cover (Page 1)
-      "Unlike video, CSS animations are lightweight and crisp. They breathe life into the DOM without the weight of heavy assets.", // Page 2
-      "In a world dominated by screens, the return to tactile design is imminent. We explore the latest trends in retro-futurism.", // Page 3
-      "Can an element be both visible and hidden? Schrödinger's Div explains all.", // Page 4
-      "Exploring the hidden corners of the digital world. Why simulations feel more real than reality." // Page 5
+  // Unified Pages State
+  const [pages, setPages] = useState<PageElement[][]>([
+    // Page 0 (Cover)
+    [
+        { id: 'h1', type: 'headline', x: 24, y: 120, w: 352, h: 70, content: 'AI TAKES OVER HOLLYWOOD', zIndex: 1 },
+        { id: 'i1', type: 'image', x: 24, y: 200, w: 352, h: 180, content: 'https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&q=80&w=800', zIndex: 1 },
+        { id: 't1', type: 'text', x: 24, y: 390, w: 352, h: 80, content: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.", zIndex: 1 }
+    ],
+    // Page 1 (Opinion - Page 2)
+    [
+        { id: 'i2', type: 'image', x: 24, y: 60, w: 352, h: 220, content: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&q=80&w=800', zIndex: 1 },
+        { id: 't2', type: 'text', x: 24, y: 290, w: 352, h: 180, content: "Unlike video, CSS animations are lightweight and crisp. They breathe life into the DOM without the weight of heavy assets.", zIndex: 1 }
+    ],
+    // Page 2 (Lifestyle - Page 3)
+    [
+        { id: 'i3', type: 'image', x: 24, y: 60, w: 352, h: 180, content: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=800', zIndex: 1 },
+        { id: 't3', type: 'text', x: 24, y: 250, w: 352, h: 220, content: "In a world dominated by screens, the return to tactile design is imminent. We explore the latest trends in retro-futurism.", zIndex: 1 }
+    ],
+    // Page 3 (Science - Page 4)
+    [
+        { id: 'i4', type: 'image', x: 24, y: 60, w: 352, h: 180, content: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&q=80&w=800', zIndex: 1 },
+        { id: 't4', type: 'text', x: 24, y: 250, w: 352, h: 220, content: "Can an element be both visible and hidden? Schrödinger's Div explains all.", zIndex: 1 }
+    ],
+    // Page 4 (Travel - Page 5)
+    [
+        { id: 'i5', type: 'image', x: 24, y: 60, w: 352, h: 180, content: 'https://images.unsplash.com/photo-1469474932316-d6df4d5d7932?auto=format&fit=crop&q=80&w=800', zIndex: 1 },
+        { id: 't5', type: 'text', x: 24, y: 250, w: 352, h: 220, content: "Exploring the hidden corners of the digital world. Why simulations feel more real than reality.", zIndex: 1 }
+    ],
+    // Page 5 (Back Cover - Page 6)
+    [
+        { id: 'end', type: 'text', x: 50, y: 200, w: 300, h: 100, content: "The End", zIndex: 1 }
+    ]
   ]);
 
-  const [images, setImages] = useState([
-    'https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&q=80&w=800', // Cover (Img 0)
-    'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&q=80&w=800', // Page 2 (Img 1)
-    'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=800', // Page 3 (Img 2)
-    'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&q=80&w=800', // Page 4 (Img 3)
-    'https://images.unsplash.com/photo-1469474932316-d6df4d5d7932?auto=format&fit=crop&q=80&w=800', // Page 5 (Img 4)
-  ]);
+  const updatePageElement = (pageIndex: number, elementId: string, updates: Partial<PageElement>) => {
+      setPages(prev => {
+          const newPages = [...prev];
+          newPages[pageIndex] = newPages[pageIndex].map(el => 
+              el.id === elementId ? { ...el, ...updates } : el
+          );
+          return newPages;
+      });
+  };
+
+  const addPageElement = (pageIndex: number, type: 'text' | 'image') => {
+      setPages(prev => {
+          const newPages = [...prev];
+          const newId = Math.random().toString(36).substr(2, 9);
+          const newElement: PageElement = {
+              id: newId,
+              type,
+              x: 50,
+              y: 50,
+              w: 300,
+              h: type === 'image' ? 200 : 100,
+              content: type === 'image' ? 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&q=80&w=800' : 'New text block...',
+              zIndex: newPages[pageIndex].length + 1
+          };
+          newPages[pageIndex] = [...newPages[pageIndex], newElement];
+          return newPages;
+      });
+  };
+
+  const deletePageElement = (pageIndex: number, elementId: string) => {
+      if(!window.confirm("Delete this element?")) return;
+      setPages(prev => {
+          const newPages = [...prev];
+          newPages[pageIndex] = newPages[pageIndex].filter(el => el.id !== elementId);
+          return newPages;
+      });
+  };
 
   // Page flipping logic: 0 = Cover, 1 = First Spread, etc.
   const [flippedIndex, setFlippedIndex] = useState(0);
@@ -257,18 +454,6 @@ const Newspaper: React.FC = () => {
       }
   };
 
-  const updateImage = (index: number, value: string) => {
-    const newImages = [...images];
-    newImages[index] = value;
-    setImages(newImages);
-  };
-
-  const updatePageText = (index: number, value: string) => {
-      const newTexts = [...pageTexts];
-      newTexts[index] = value;
-      setPageTexts(newTexts);
-  };
-
   // --- PDF Import Logic ---
   const handlePdfUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -280,21 +465,11 @@ const Newspaper: React.FC = () => {
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       
       const sourceWidth = 1000;
-      const scaleFactor = sourceWidth / 352;
-      
-      const targetHeights = [
-          192 * scaleFactor,
-          226 * scaleFactor,
-          160 * scaleFactor,
-          160 * scaleFactor,
-          160 * scaleFactor,
-      ];
-      
-      const totalHeightNeeded = targetHeights.reduce((a, b) => a + b, 0);
       
       const rollCanvas = document.createElement('canvas');
+      // Approximate height for 5 pages worth of content
       rollCanvas.width = sourceWidth;
-      rollCanvas.height = totalHeightNeeded + 2000;
+      rollCanvas.height = 3000; 
       const rollCtx = rollCanvas.getContext('2d');
       if (!rollCtx) throw new Error("No context");
       
@@ -302,7 +477,7 @@ const Newspaper: React.FC = () => {
       rollCtx.fillRect(0, 0, rollCanvas.width, rollCanvas.height);
 
       let currentPdfY = 0;
-      const maxPdfPages = Math.min(pdf.numPages, 4);
+      const maxPdfPages = Math.min(pdf.numPages, 5);
 
       for (let i = 0; i < maxPdfPages; i++) {
           const page = await pdf.getPage(i + 1);
@@ -318,31 +493,30 @@ const Newspaper: React.FC = () => {
                pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
                await page.render({ canvasContext: pageCtx, viewport } as any).promise;
                
-               rollCtx.drawImage(pageCanvas, 0, currentPdfY);
-               currentPdfY += viewport.height;
+               // For simplicity in this new structure, we will just create ONE full-page image per PDF page for each Newspaper Page
+               const imgData = pageCanvas.toDataURL('image/jpeg', 0.85);
+               
+               // Update the corresponding page with a single full image element
+               setPages(prev => {
+                   const newPages = [...prev];
+                   if (newPages[i]) {
+                       // Clear existing and add full page image
+                       newPages[i] = [{
+                           id: `pdf-${i}`,
+                           type: 'image',
+                           x: 0,
+                           y: 0,
+                           w: 400, // Full width of page container
+                           h: 500, // Full height
+                           content: imgData,
+                           zIndex: 1
+                       }];
+                   }
+                   return newPages;
+               });
           }
-          
-          if (currentPdfY >= totalHeightNeeded) break;
       }
 
-      const newImages = [...images];
-      let sliceY = 0;
-      
-      for (let i = 0; i < 5; i++) {
-          const h = targetHeights[i];
-          const sliceCanvas = document.createElement('canvas');
-          sliceCanvas.width = sourceWidth;
-          sliceCanvas.height = h;
-          const sliceCtx = sliceCanvas.getContext('2d');
-          
-          if (sliceCtx) {
-              sliceCtx.drawImage(rollCanvas, 0, sliceY, sourceWidth, h, 0, 0, sourceWidth, h);
-              newImages[i] = sliceCanvas.toDataURL('image/jpeg', 0.85);
-              sliceY += h;
-          }
-      }
-
-      setImages(newImages);
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (foldState !== 'READING') handleUnfold();
 
@@ -363,33 +537,53 @@ const Newspaper: React.FC = () => {
       ...FONT_STYLES[config.fontStyle]
   });
 
-  const renderCoverContent = () => (
-    <div className="absolute inset-0 shadow-[inset_2px_0_5px_rgba(0,0,0,0.1)] p-6 flex flex-col h-full overflow-hidden" style={getPaperStyle()}>
-        <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
-        
-        <div className="text-center border-b-2 border-black pb-4 mb-4">
-            <h1 className="text-4xl font-black tracking-tight text-black mb-1" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>{config.publicationTitle}</h1>
-            <div className="flex justify-between text-[9px] font-sans font-bold text-neutral-600 border-t border-black pt-1 mt-1">
-                <span>VOL. CCLIV</span>
-                <span>CSS EDITION</span>
-                <span>$1.50</span>
-            </div>
-        </div>
-        
-        <h2 className="text-3xl font-bold leading-none mb-3 text-neutral-900 line-clamp-2" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>{headline}</h2>
-        
-        <div className="w-full h-48 bg-neutral-300 mb-4 overflow-hidden relative grayscale contrast-110 shrink-0">
-            <img src={images[0]} alt="Cover" className={getImageClassName(images[0])} style={{ backgroundColor: config.paperColor }} />
-            <div className="absolute bottom-0 left-0 bg-black text-white text-[8px] px-1 py-0.5">FIG 1.1</div>
-        </div>
+  // --- Render Helpers ---
 
-        <div className="columns-2 gap-4 text-[10px] text-justify leading-tight text-neutral-800" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
-            <p className="mb-2"><span className="font-bold text-2xl float-left mr-1 leading-none mt-[-2px]">{pageTexts[0].charAt(0)}</span>{pageTexts[0].slice(1)}</p>
+  const renderPageContent = (pageIndex: number, extraStaticContent?: React.ReactNode) => {
+      const pageElements = pages[pageIndex] || [];
+      
+      return (
+        <div className="absolute inset-0 shadow-[inset_2px_0_5px_rgba(0,0,0,0.1)] flex flex-col h-full overflow-hidden" style={getPaperStyle()}>
+            <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
+            
+            {/* Static Content (Like Header) */}
+            {extraStaticContent}
+            
+            {/* Dynamic Elements */}
+            {pageElements.map(el => (
+                <ResizableBox 
+                    key={el.id}
+                    element={el}
+                    onUpdate={(updates) => updatePageElement(pageIndex, el.id, updates)}
+                    onDelete={() => deletePageElement(pageIndex, el.id)}
+                    isActive={isEditMode}
+                    scale={sceneScale}
+                >
+                    {el.type === 'image' ? (
+                        <div className="w-full h-full bg-neutral-200 overflow-hidden relative group">
+                             {el.content.startsWith('http') || el.content.startsWith('data:') ? (
+                                <img src={el.content} alt="Content" className={getImageClassName(el.content)} style={{ backgroundColor: config.paperColor }} />
+                             ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-neutral-300 text-neutral-500 text-[10px]">Invalid Image URL</div>
+                             )}
+                        </div>
+                    ) : (
+                        <div className={`w-full h-full text-justify leading-tight text-neutral-800 overflow-hidden ${el.type === 'headline' ? 'font-bold text-3xl leading-none' : 'text-[9px]'}`} style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+                            <p>{el.content}</p>
+                        </div>
+                    )}
+                </ResizableBox>
+            ))}
+            
+            {/* Page Number */}
+            {pageIndex < 5 && (
+                <div className={`absolute bottom-4 ${pageIndex % 2 === 0 ? 'right-4' : 'left-4'} z-10 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px] pointer-events-none`} style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+                    {pageIndex + 1}
+                </div>
+            )}
         </div>
-        
-        <div className="absolute bottom-4 right-4 z-50 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>1</div>
-    </div>
-  );
+      );
+  };
 
   const getPropTransform = () => {
       switch (foldState) {
@@ -409,17 +603,10 @@ const Newspaper: React.FC = () => {
 
   // Helper to manage z-indices for sheets
   const getSheetZIndex = (sheetIndex: number) => {
-      // If the sheet is active (on top of stack) or transitioning, we want high Z.
-      // Left stack (flipped): higher indices should be on top.
-      // Right stack (not flipped): lower indices should be on top.
-      
       const isFlipped = sheetIndex < flippedIndex;
-      
       if (isFlipped) {
-          // Left stack: 0 bottom, 1 middle, 2 top
           return sheetIndex;
       } else {
-          // Right stack: 0 top, 1 middle, 2 bottom
           return 100 - sheetIndex;
       }
   };
@@ -450,8 +637,11 @@ const Newspaper: React.FC = () => {
 
         {/* Scaled Wrapper for 3D Content - Using Dynamic Scale */}
         <div 
-            className="transition-transform duration-300 origin-center flex items-center justify-center pointer-events-none"
-            style={{ transform: `scale(${sceneScale})` }}
+            className="transition-transform duration-300 origin-center flex items-center justify-center"
+            style={{ 
+                transform: `scale(${sceneScale})`,
+                pointerEvents: isEditMode ? 'auto' : 'none' 
+            }}
         >
             
             {/* The Stage: Sets the perspective for 3D transformations */}
@@ -499,33 +689,25 @@ const Newspaper: React.FC = () => {
                     >
                         {/* Front (Page 5) */}
                         <div 
-                            className="absolute inset-0 shadow-[inset_10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col" 
+                            className="absolute inset-0 shadow-[inset_10px_0_20px_rgba(0,0,0,0.1)] flex flex-col" 
                             style={{ ...faceStyle, transform: 'translateZ(1px)', ...getPaperStyle() }}
                         >
-                            <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
-                            <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
-                                <span>TRAVEL</span>
-                                <span>PAGE 5</span>
-                            </div>
-                            <h3 className="text-xl font-bold text-neutral-800 mb-2 leading-tight" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>Escaping The Matrix</h3>
-                            <div className="w-full h-40 bg-neutral-200 mb-3 overflow-hidden grayscale contrast-125">
-                                <img src={images[4]} alt="Page 5" className={getImageClassName(images[4])} style={{ backgroundColor: config.paperColor }} />
-                            </div>
-                            <div className="flex-1 columns-2 gap-4 text-[9px] text-justify text-neutral-700 leading-3" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
-                                <p className="mb-2">{pageTexts[4]}</p>
-                            </div>
-                            <div className="absolute bottom-4 right-4 z-50 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>5</div>
+                            {renderPageContent(4, 
+                                <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1 mx-6 mt-6" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+                                    <span>TRAVEL</span>
+                                    <span>PAGE 5</span>
+                                </div>
+                            )}
                         </div>
-                        {/* Back (Page 6) */}
+                        {/* Back (Page 6 - The End) */}
                         <div 
                             className="absolute inset-0 shadow-[inset_-10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col rounded-l-md" 
                             style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)', ...getPaperStyle() }}
                         >
-                            <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
-                            <div className="flex-1 flex flex-col items-center justify-center border-4 double border-neutral-800 p-4">
-                                <div className="text-xl font-bold" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>The End</div>
-                            </div>
-                            <div className="absolute bottom-4 left-4 z-50 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>6</div>
+                             {renderPageContent(5, 
+                                <div className="absolute inset-0 flex flex-col items-center justify-center border-4 double border-neutral-800 m-4 pointer-events-none opacity-50">
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -541,41 +723,27 @@ const Newspaper: React.FC = () => {
                     >
                         {/* Front (Page 3) */}
                         <div 
-                            className="absolute inset-0 shadow-[inset_10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col" 
+                            className="absolute inset-0 shadow-[inset_10px_0_20px_rgba(0,0,0,0.1)] flex flex-col" 
                             style={{ ...faceStyle, transform: 'translateZ(1px)', ...getPaperStyle() }}
                         >
-                            <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
-                            <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
-                                <span>LIFESTYLE</span>
-                                <span>PAGE 3</span>
-                            </div>
-                            <h3 className="text-xl font-bold text-neutral-800 mb-2 leading-tight" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>Modern Tech Aesthetics</h3>
-                            <div className="w-full h-40 bg-neutral-200 mb-3 overflow-hidden grayscale contrast-125 sepia-[.3]">
-                                <img src={images[2]} alt="Page 3" className={getImageClassName(images[2])} style={{ backgroundColor: config.paperColor }} />
-                            </div>
-                            <div className="flex-1 columns-2 gap-4 text-[9px] text-justify text-neutral-700 leading-3" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
-                                <p className="mb-2">{pageTexts[2]}</p>
-                            </div>
-                            <div className="absolute bottom-4 right-4 z-50 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>3</div>
+                             {renderPageContent(2, 
+                                <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1 mx-6 mt-6" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+                                    <span>LIFESTYLE</span>
+                                    <span>PAGE 3</span>
+                                </div>
+                            )}
                         </div>
                         {/* Back (Page 4) */}
                         <div 
-                            className="absolute inset-0 shadow-[inset_-10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col rounded-l-md" 
+                            className="absolute inset-0 shadow-[inset_-10px_0_20px_rgba(0,0,0,0.1)] flex flex-col rounded-l-md" 
                             style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)', ...getPaperStyle() }}
                         >
-                            <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
-                            <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
-                                <span>SCIENCE</span>
-                                <span>PAGE 4</span>
-                            </div>
-                            <h3 className="text-xl font-bold text-neutral-800 mb-2 leading-tight" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>Quantum CSS</h3>
-                            <div className="w-full h-40 bg-neutral-200 mb-3 overflow-hidden grayscale contrast-125">
-                                <img src={images[3]} alt="Page 4" className={getImageClassName(images[3])} style={{ backgroundColor: config.paperColor }} />
-                            </div>
-                            <div className="flex-1 text-[9px] text-justify text-neutral-700 leading-3" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
-                                <p>{pageTexts[3]}</p>
-                            </div>
-                            <div className="absolute bottom-4 left-4 z-50 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>4</div>
+                            {renderPageContent(3, 
+                                <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1 mx-6 mt-6" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+                                    <span>SCIENCE</span>
+                                    <span>PAGE 4</span>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -589,35 +757,33 @@ const Newspaper: React.FC = () => {
                             zIndex: getSheetZIndex(0)
                         }}
                     >
-                        {/* Front (Cover) */}
+                        {/* Front (Cover - Page 0) */}
                         <div 
                             className="absolute inset-0" 
                             style={{ ...faceStyle, transform: 'translateZ(1px)', ...getPaperStyle() }}
                         >
-                            {renderCoverContent()}
-                        </div>
-                        {/* Back (Page 2) */}
-                        <div 
-                            className="absolute inset-0 shadow-[inset_-10px_0_20px_rgba(0,0,0,0.05)] p-6 flex flex-col rounded-l-md" 
-                            style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)', ...getPaperStyle() }}
-                        >
-                            <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
-                            <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
-                                <span>OPINION</span>
-                                <span>PAGE 2</span>
-                            </div>
-                            <div className="flex flex-col h-full">
-                                <div className="w-full h-1/2 bg-neutral-800 mb-4 overflow-hidden relative">
-                                    <img src={images[1]} alt="Page 2" className={getImageClassName(images[1])} style={{ backgroundColor: config.paperColor }} />
-                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                        {!images[1].startsWith('data:') && <h3 className="text-white font-serif text-2xl font-bold text-center px-4 drop-shadow-md">"Why We Love Animation"</h3>}
+                            {renderPageContent(0, 
+                                <div className="text-center border-b-2 border-black pb-4 mb-0 pt-6 px-6 pointer-events-none">
+                                    <h1 className="text-4xl font-black tracking-tight text-black mb-1" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>{config.publicationTitle}</h1>
+                                    <div className="flex justify-between text-[9px] font-sans font-bold text-neutral-600 border-t border-black pt-1 mt-1">
+                                        <span>VOL. CCLIV</span>
+                                        <span>CSS EDITION</span>
+                                        <span>$1.50</span>
                                     </div>
                                 </div>
-                                <div className="columns-2 gap-3 text-[9px] text-justify leading-3 text-neutral-700" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
-                                    <p>{pageTexts[1]}</p>
+                            )}
+                        </div>
+                        {/* Back (Page 2 - Page 1) */}
+                        <div 
+                            className="absolute inset-0 shadow-[inset_-10px_0_20px_rgba(0,0,0,0.05)] flex flex-col rounded-l-md" 
+                            style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)', ...getPaperStyle() }}
+                        >
+                            {renderPageContent(1, 
+                                <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1 mx-6 mt-6" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+                                    <span>OPINION</span>
+                                    <span>PAGE 2</span>
                                 </div>
-                            </div>
-                            <div className="absolute bottom-4 left-4 z-50 text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>2</div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -643,7 +809,22 @@ const Newspaper: React.FC = () => {
                     {/* Top Half (Visible & Static) */}
                     <div className="absolute top-0 w-full h-[250px] overflow-hidden z-20 backface-hidden shadow-md" style={getPaperStyle()}>
                         <div className="w-full h-[500px] relative">
-                            {renderCoverContent()}
+                             {/* Render simplified cover for folded view */}
+                             <div className="absolute inset-0 shadow-[inset_2px_0_5px_rgba(0,0,0,0.1)] flex flex-col h-full overflow-hidden" style={getPaperStyle()}>
+                                <div className="absolute inset-0 -z-10" style={{backgroundColor: config.paperColor}}></div>
+                                <div className="text-center border-b-2 border-black pb-4 mb-0 pt-6 px-6">
+                                    <h1 className="text-4xl font-black tracking-tight text-black mb-1" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>{config.publicationTitle}</h1>
+                                </div>
+                                <div className="p-6">
+                                    {/* Simply grab the first image and headline from page 0 for the preview prop */}
+                                    <h2 className="text-3xl font-bold leading-none text-neutral-900 mb-2" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+                                        {pages[0].find(e => e.type === 'headline')?.content || "HEADLINE"}
+                                    </h2>
+                                    <div className="w-full h-32 bg-neutral-300 overflow-hidden relative grayscale contrast-110">
+                                         <img src={pages[0].find(e => e.type === 'image')?.content || ""} className="w-full h-full object-cover" style={{ backgroundColor: config.paperColor }} />
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <div 
                             className="absolute bottom-0 w-full h-8 bg-gradient-to-t from-black/20 to-transparent pointer-events-none transition-opacity"
@@ -665,7 +846,14 @@ const Newspaper: React.FC = () => {
                     >
                         <div className="absolute inset-0 overflow-hidden backface-hidden" style={getPaperStyle()}>
                             <div className="w-full h-[500px] relative -top-[250px]">
-                                {renderCoverContent()}
+                                {/* Simplified bottom half cover */}
+                                <div className="absolute inset-0 shadow-[inset_2px_0_5px_rgba(0,0,0,0.1)] flex flex-col h-full overflow-hidden" style={getPaperStyle()}>
+                                     <div className="p-6 mt-[250px]">
+                                         <p className="text-[10px]" style={{ fontFamily: FONT_STYLES[config.fontStyle].fontFamily }}>
+                                            {pages[0].find(e => e.type === 'text')?.content || "Text content..."}
+                                         </p>
+                                     </div>
+                                </div>
                             </div>
                             <div 
                                 className="absolute inset-0 bg-gradient-to-b from-black/30 to-transparent pointer-events-none transition-opacity" 
@@ -718,32 +906,43 @@ const Newspaper: React.FC = () => {
                             <span className="w-2 h-2 rounded-full bg-green-500"></span>
                             Editor's Desk
                         </h3>
-                        
-                        {/* PDF Upload Button */}
-                        <div className="relative">
-                            <input 
-                                type="file" 
-                                accept=".pdf" 
-                                onChange={handlePdfUpload}
-                                className="hidden" 
-                                ref={fileInputRef}
-                            />
-                            <button 
-                                onClick={() => fileInputRef.current?.click()}
-                                disabled={isPdfLoading}
-                                className="flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10px] md:text-xs px-3 py-1.5 rounded-full border border-neutral-700 transition-all"
+
+                        <div className="flex items-center gap-2">
+                             {/* Edit Mode Toggle */}
+                            <button
+                                onClick={() => setIsEditMode(!isEditMode)}
+                                className={`flex items-center gap-2 text-[10px] md:text-xs px-3 py-1.5 rounded-full border transition-all ${isEditMode ? 'bg-blue-600 border-blue-500 text-white' : 'bg-neutral-800 border-neutral-700 text-neutral-300 hover:bg-neutral-700'}`}
                             >
-                                {isPdfLoading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-                                {isPdfLoading ? 'Processing PDF...' : 'Import PDF Pages'}
+                                {isEditMode ? <Check size={12} /> : <Pencil size={12} />}
+                                {isEditMode ? 'Done Editing' : 'Edit Layout'}
                             </button>
+                            
+                            {/* PDF Upload Button */}
+                            <div className="relative">
+                                <input 
+                                    type="file" 
+                                    accept=".pdf" 
+                                    onChange={handlePdfUpload}
+                                    className="hidden" 
+                                    ref={fileInputRef}
+                                />
+                                <button 
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={isPdfLoading}
+                                    className="flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10px] md:text-xs px-3 py-1.5 rounded-full border border-neutral-700 transition-all"
+                                >
+                                    {isPdfLoading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                                    {isPdfLoading ? 'Processing...' : 'Import PDF'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                     
-                    {/* Inputs */}
+                    {/* Content Editor */}
                     <div className="grid grid-cols-2 md:grid-cols-6 gap-2 md:gap-3">
                         {/* Publication Title - Spans 2 cols */}
-                        <div className="space-y-1 col-span-2 md:col-span-1">
-                            <label className="text-[10px] text-neutral-500 font-mono">PUBLICATION</label>
+                        <div className="space-y-1 col-span-2 md:col-span-2">
+                            <label className="text-[10px] text-neutral-500 font-mono">PUBLICATION TITLE</label>
                             <input 
                                 type="text" 
                                 value={config.publicationTitle}
@@ -751,64 +950,96 @@ const Newspaper: React.FC = () => {
                                 className="w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-green-500"
                             />
                         </div>
-
-                        <div className="space-y-1 col-span-2 md:col-span-1">
-                            <label className="text-[10px] text-neutral-500 font-mono">HEADLINE</label>
-                            <input 
-                                type="text" 
-                                value={headline}
-                                onChange={(e) => setHeadline(e.target.value)}
-                                className="w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-green-500"
-                            />
-                        </div>
                         
                         {/* Font Selection */}
-                        <div className="space-y-1 col-span-2 md:col-span-1">
+                         <div className="space-y-1 col-span-2 md:col-span-2">
                             <label className="text-[10px] text-neutral-500 font-mono">TYPOGRAPHY</label>
                             <div className="flex gap-1">
-                                <button 
-                                    onClick={() => setConfig({...config, fontStyle: 'classic'})}
-                                    className={`flex-1 px-1 py-1 rounded text-[10px] border ${config.fontStyle === 'classic' ? 'bg-neutral-700 border-neutral-500 text-white' : 'bg-neutral-800 border-neutral-700 text-neutral-400'}`}
-                                >
-                                    Classic
-                                </button>
-                                <button 
-                                    onClick={() => setConfig({...config, fontStyle: 'modern'})}
-                                    className={`flex-1 px-1 py-1 rounded text-[10px] border ${config.fontStyle === 'modern' ? 'bg-neutral-700 border-neutral-500 text-white' : 'bg-neutral-800 border-neutral-700 text-neutral-400'}`}
-                                >
-                                    Modern
-                                </button>
-                                <button 
-                                    onClick={() => setConfig({...config, fontStyle: 'typewriter'})}
-                                    className={`flex-1 px-1 py-1 rounded text-[10px] border ${config.fontStyle === 'typewriter' ? 'bg-neutral-700 border-neutral-500 text-white' : 'bg-neutral-800 border-neutral-700 text-neutral-400'}`}
-                                >
-                                    Mono
-                                </button>
+                                {['classic', 'modern', 'typewriter'].map((f) => (
+                                    <button 
+                                        key={f}
+                                        onClick={() => setConfig({...config, fontStyle: f as FontStyle})}
+                                        className={`flex-1 px-1 py-1 rounded text-[10px] capitalize border ${config.fontStyle === f ? 'bg-neutral-700 border-neutral-500 text-white' : 'bg-neutral-800 border-neutral-700 text-neutral-400'}`}
+                                    >
+                                        {f}
+                                    </button>
+                                ))}
                             </div>
                         </div>
-                        
-                        {/* Page Content & Images */}
-                        <div className="col-span-2 md:col-span-3 grid grid-cols-2 md:grid-cols-5 gap-2">
-                            {images.map((img, i) => (
-                                <div key={i} className="space-y-1 group relative">
-                                    <label className="text-[10px] text-neutral-500 font-mono flex items-center justify-between">
-                                        <span>{i === 0 ? 'COVER' : `PG ${i + 1}`}</span>
-                                        <FileText size={8} />
-                                    </label>
-                                    <input 
-                                        type="text" 
-                                        value={img.length > 50 && img.startsWith('data:') ? 'PDF Asset' : img}
-                                        onChange={(e) => updateImage(i, e.target.value)}
-                                        disabled={img.startsWith('data:')}
-                                        placeholder="Image URL"
-                                        className={`w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-[10px] text-neutral-300 focus:outline-none focus:border-green-500 truncate mb-1`}
-                                    />
-                                    <textarea
-                                        value={pageTexts[i]}
-                                        onChange={(e) => updatePageText(i, e.target.value)}
-                                        placeholder="Content..."
-                                        className="w-full h-8 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-[9px] text-neutral-400 focus:outline-none focus:border-green-500 resize-none leading-tight"
-                                    />
+
+                        {/* Page Content Editor - Lists all dynamic elements */}
+                        <div className="col-span-2 md:col-span-6 space-y-4 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar border-t border-neutral-800 pt-4">
+                            {pages.map((pageElements, pIndex) => (
+                                <div key={pIndex} className="space-y-2">
+                                    <div className="flex items-center justify-between sticky top-0 bg-neutral-900/90 backdrop-blur-sm py-1 z-10 border-b border-neutral-800">
+                                        <span className="text-[10px] text-neutral-500 font-mono font-bold uppercase">
+                                            {pIndex === 0 ? 'COVER PAGE' : `PAGE ${pIndex + 1}`}
+                                        </span>
+                                        <div className="flex gap-2">
+                                            <button 
+                                                onClick={() => addPageElement(pIndex, 'text')}
+                                                className="text-[9px] flex items-center gap-1 text-neutral-400 hover:text-white bg-neutral-800 px-2 py-0.5 rounded"
+                                            >
+                                                <Plus size={8} /> Text
+                                            </button>
+                                            <button 
+                                                onClick={() => addPageElement(pIndex, 'image')}
+                                                className="text-[9px] flex items-center gap-1 text-neutral-400 hover:text-white bg-neutral-800 px-2 py-0.5 rounded"
+                                            >
+                                                <ImageIcon size={8} /> Image
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                        {pageElements.map((el) => (
+                                            <div key={el.id} className="group relative flex flex-col gap-1 p-2 border border-neutral-800 rounded bg-neutral-900/50">
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <div className="flex items-center gap-1">
+                                                        <label className="text-[9px] text-neutral-500 font-mono uppercase truncate">{el.type}</label>
+                                                        {el.link && <LinkIcon size={8} className="text-blue-500" />}
+                                                    </div>
+                                                    <button onClick={() => deletePageElement(pIndex, el.id)} className="text-neutral-700 hover:text-red-500 transition-colors"><Trash2 size={10} /></button>
+                                                </div>
+                                                
+                                                {/* Content Input */}
+                                                {el.type === 'image' ? (
+                                                    <input 
+                                                        type="text" 
+                                                        value={el.content.startsWith('data:') ? 'PDF Asset' : el.content}
+                                                        onChange={(e) => updatePageElement(pIndex, el.id, { content: e.target.value })}
+                                                        disabled={el.content.startsWith('data:')}
+                                                        placeholder="Image URL"
+                                                        className="w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-[10px] text-neutral-300 focus:outline-none focus:border-green-500 placeholder:text-neutral-600"
+                                                    />
+                                                ) : (
+                                                    <textarea
+                                                        value={el.content}
+                                                        onChange={(e) => updatePageElement(pIndex, el.id, { content: e.target.value })}
+                                                        placeholder="Content..."
+                                                        className="w-full h-8 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-[10px] text-neutral-300 focus:outline-none focus:border-green-500 resize-none leading-tight placeholder:text-neutral-600"
+                                                    />
+                                                )}
+
+                                                {/* Link Input */}
+                                                <div className="relative mt-1">
+                                                    <div className="absolute left-2 top-1/2 -translate-y-1/2 text-neutral-600 pointer-events-none">
+                                                        <LinkIcon size={8} />
+                                                    </div>
+                                                    <input 
+                                                        type="text" 
+                                                        value={el.link || ''}
+                                                        onChange={(e) => updatePageElement(pIndex, el.id, { link: e.target.value })}
+                                                        placeholder="Add Link URL..."
+                                                        className="w-full bg-neutral-800 border border-neutral-700 rounded pl-5 pr-2 py-1 text-[9px] text-blue-300 focus:outline-none focus:border-blue-500 placeholder:text-neutral-700"
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {pageElements.length === 0 && (
+                                            <div className="col-span-2 text-[10px] text-neutral-600 italic py-2">No elements on this page. Add one!</div>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -819,7 +1050,7 @@ const Newspaper: React.FC = () => {
                 <button
                     onClick={handleFold}
                     disabled={foldState !== 'READING'}
-                    className={`flex items-center gap-2 px-6 py-3 rounded-xl font-serif text-sm border transition-all shadow-lg active:scale-95 whitespace-nowrap ${
+                    className={`flex items-center gap-2 px-6 py-3 rounded-xl font-serif text-sm border transition-all shadow-lg active:scale-95 whitespace-nowrap h-fit ${
                         foldState !== 'READING'
                         ? 'bg-neutral-800/50 text-neutral-600 border-neutral-800 cursor-default'
                         : 'bg-gradient-to-r from-neutral-700 to-neutral-800 hover:from-neutral-600 hover:to-neutral-700 text-white border-neutral-600 hover:border-neutral-500 hover:shadow-xl'
