@@ -206,8 +206,6 @@ const Newspaper: React.FC = () => {
           const viewport = page.getViewport({ scale: sourceWidth / page.getViewport({ scale: 1 }).width });
           
           // Draw this page onto the roll
-          // Note: Rendering directly to the large canvas context
-          // We need a temporary canvas for the page render because render() takes a context directly mapped to canvas
           const pageCanvas = document.createElement('canvas');
           pageCanvas.width = viewport.width;
           pageCanvas.height = viewport.height;
@@ -260,13 +258,15 @@ const Newspaper: React.FC = () => {
 
   // Helper to determine image style based on content type
   const getImageClassName = (src: string) => {
-    // Standard cover for everything now, as PDF slices are generated to fit the aspect ratio
     return "w-full h-full object-cover object-top bg-white";
   };
 
   // Helper to render consistent cover content
   const renderCoverContent = () => (
     <div className="absolute inset-0 bg-[#f4f1ea] shadow-[inset_2px_0_5px_rgba(0,0,0,0.1)] p-6 flex flex-col h-full overflow-hidden">
+        {/* Blocking layer for opacity */}
+        <div className="absolute inset-0 bg-[#f4f1ea] -z-10"></div>
+        
         <div className="text-center border-b-2 border-black pb-4 mb-4">
             <h1 className="font-serif text-4xl font-black tracking-tight text-black mb-1">THE CINE TIMES</h1>
             <div className="flex justify-between text-[9px] font-sans font-bold text-neutral-600 border-t border-black pt-1 mt-1">
@@ -279,7 +279,6 @@ const Newspaper: React.FC = () => {
         <h2 className="font-serif text-3xl font-bold leading-none mb-3 text-neutral-900 line-clamp-2">{headline}</h2>
         
         <div className="w-full h-48 bg-neutral-300 mb-4 overflow-hidden relative grayscale contrast-110 shrink-0">
-            {/* Removed mix-blend-multiply to fix 3D transparency/mirror artifacts */}
             <img src={images[0]} alt="Cover" className={getImageClassName(images[0])} />
             <div className="absolute bottom-0 left-0 bg-black text-white text-[8px] px-1 py-0.5">FIG 1.1</div>
         </div>
@@ -289,6 +288,9 @@ const Newspaper: React.FC = () => {
             <p>Quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit.</p>
             <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
         </div>
+        
+        {/* Page Number */}
+        <div className="absolute bottom-4 right-4 z-50 font-serif text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]">1</div>
     </div>
   );
 
@@ -303,12 +305,17 @@ const Newspaper: React.FC = () => {
       }
   };
 
+  const faceStyle: React.CSSProperties = {
+      backfaceVisibility: 'hidden',
+      WebkitBackfaceVisibility: 'hidden',
+  };
+
   return (
     <div className="w-full h-full bg-[#1a1a1a] flex flex-col relative overflow-hidden">
       {/* 3D Scene Container */}
       <div className="flex-1 flex items-center justify-center overflow-hidden py-8 relative">
         
-        {/* Navigation Arrows - Using a responsive container to match the scaled book width */}
+        {/* Navigation Arrows */}
         <div className="absolute flex justify-between w-full max-w-[320px] sm:max-w-[450px] md:max-w-[600px] lg:max-w-[850px] xl:max-w-[950px] px-4 pointer-events-none z-50">
              <button 
                 onClick={handlePrev}
@@ -329,7 +336,7 @@ const Newspaper: React.FC = () => {
         {/* Scaled Wrapper for 3D Content */}
         <div className="transform scale-[0.35] sm:scale-[0.5] md:scale-[0.65] lg:scale-[0.85] xl:scale-100 transition-transform duration-300 origin-center flex items-center justify-center pointer-events-none">
             
-            {/* The Stage (Fixed Width) - Pointer events auto enables for children */}
+            {/* The Stage */}
             <div className="relative w-[800px] h-[500px] perspective-[1500px] flex items-center justify-center pointer-events-auto">
                 
                 {/* --- Mode 1: Interactive Reading Book --- */}
@@ -339,11 +346,10 @@ const Newspaper: React.FC = () => {
                     }`}
                     style={{ 
                         transformStyle: 'preserve-3d',
-                        // Center the closed book by shifting left when flippedIndex is 0
                         transform: flippedIndex === 0 ? 'translateX(-200px)' : 'translateX(0px)' 
                     }}
                 >
-                    {/* Left Base (Empty Desk) - Pushed back in Z to avoid blocking negative-Z pages */}
+                    {/* Left Base (Empty Desk) */}
                     <div 
                         className={`absolute top-0 bottom-0 right-[50%] w-[400px] bg-[#e5e5e5] rounded-l-md shadow-2xl flex items-center justify-center border-r border-neutral-300 transition-opacity duration-500 ${flippedIndex === 0 ? 'opacity-0' : 'opacity-100'}`}
                         style={{ transform: 'translateZ(-50px)' }}
@@ -351,7 +357,7 @@ const Newspaper: React.FC = () => {
                         <div className="text-neutral-300 font-serif rotate-[-5deg]">End of Paper</div>
                     </div>
 
-                    {/* Right Base (Back Cover Backdrop) - Pushed back in Z */}
+                    {/* Right Base (Back Cover Backdrop) */}
                     <div 
                         className="absolute top-0 bottom-0 left-[50%] w-[400px] bg-[#f4f1ea] rounded-r-md shadow-xl p-6 flex flex-col border-l border-neutral-300"
                         style={{ transform: 'translateZ(-50px)' }}
@@ -366,16 +372,15 @@ const Newspaper: React.FC = () => {
                     <div 
                         className={`absolute top-0 left-[50%] w-[400px] h-full transition-transform duration-1000 ease-[cubic-bezier(0.645,0.045,0.355,1)] transform-style-3d origin-left`}
                         style={{ 
-                            // Z Stacking: Higher pages are lower in stack
-                            // We use a significant Z-step (5px) to ensure correct sorting in browser
                             transform: `rotateY(${flippedIndex >= 3 ? -180 : 0}deg) translateZ(5px)` 
                         }}
                     >
-                        {/* Front (Page 5 - Img 4) */}
+                        {/* Front (Page 5) */}
                         <div 
-                            className="absolute inset-0 bg-[#f4f1ea] [backface-visibility:hidden] shadow-[inset_10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col" 
-                            style={{ backfaceVisibility: 'hidden', transform: 'translateZ(1px)' }} // Increased thickness
+                            className="absolute inset-0 bg-[#f4f1ea] shadow-[inset_10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col" 
+                            style={{ ...faceStyle, transform: 'translateZ(1px)' }}
                         >
+                            <div className="absolute inset-0 bg-[#f4f1ea] -z-10"></div>
                             <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1 font-serif">
                                 <span>TRAVEL</span>
                                 <span>PAGE 5</span>
@@ -388,15 +393,18 @@ const Newspaper: React.FC = () => {
                                 <p className="mb-2">Exploring the hidden corners of the digital world. Why simulations feel more real than reality.</p>
                                 <p>Pack your bags for a journey into the unknown depths of code.</p>
                             </div>
+                            <div className="absolute bottom-4 right-4 z-50 font-serif text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]">5</div>
                         </div>
-                        {/* Back (Page 6 - End) */}
+                        {/* Back (Page 6) */}
                         <div 
-                            className="absolute inset-0 bg-[#f4f1ea] [backface-visibility:hidden] shadow-[inset_-10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col rounded-l-md" 
-                            style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg) translateZ(1px)' }} // Increased thickness
+                            className="absolute inset-0 bg-[#f4f1ea] shadow-[inset_-10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col rounded-l-md" 
+                            style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)' }}
                         >
+                            <div className="absolute inset-0 bg-[#f4f1ea] -z-10"></div>
                             <div className="flex-1 flex flex-col items-center justify-center border-4 double border-neutral-800 p-4">
                                 <div className="font-serif text-xl font-bold">The End</div>
                             </div>
+                            <div className="absolute bottom-4 left-4 z-50 font-serif text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]">6</div>
                         </div>
                     </div>
 
@@ -407,11 +415,12 @@ const Newspaper: React.FC = () => {
                             transform: `rotateY(${flippedIndex >= 2 ? -180 : 0}deg) translateZ(10px)` 
                         }}
                     >
-                        {/* Front (Page 3 - Img 2) */}
+                        {/* Front (Page 3) */}
                         <div 
-                            className="absolute inset-0 bg-[#f4f1ea] [backface-visibility:hidden] shadow-[inset_10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col" 
-                            style={{ backfaceVisibility: 'hidden', transform: 'translateZ(1px)' }}
+                            className="absolute inset-0 bg-[#f4f1ea] shadow-[inset_10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col" 
+                            style={{ ...faceStyle, transform: 'translateZ(1px)' }}
                         >
+                            <div className="absolute inset-0 bg-[#f4f1ea] -z-10"></div>
                             <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1 font-serif">
                                 <span>LIFESTYLE</span>
                                 <span>PAGE 3</span>
@@ -424,12 +433,14 @@ const Newspaper: React.FC = () => {
                                 <p className="mb-2">In a world dominated by screens, the return to tactile design is imminent. We explore the latest trends in retro-futurism.</p>
                                 <p>The convergence of digital and physical mediums creates a new canvas for creators.</p>
                             </div>
+                            <div className="absolute bottom-4 right-4 z-50 font-serif text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]">3</div>
                         </div>
-                        {/* Back (Page 4 - Img 3) */}
+                        {/* Back (Page 4) */}
                         <div 
-                            className="absolute inset-0 bg-[#f4f1ea] [backface-visibility:hidden] shadow-[inset_-10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col rounded-l-md" 
-                            style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg) translateZ(1px)' }}
+                            className="absolute inset-0 bg-[#f4f1ea] shadow-[inset_-10px_0_20px_rgba(0,0,0,0.1)] p-6 flex flex-col rounded-l-md" 
+                            style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)' }}
                         >
+                            <div className="absolute inset-0 bg-[#f4f1ea] -z-10"></div>
                             <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1 font-serif">
                                 <span>SCIENCE</span>
                                 <span>PAGE 4</span>
@@ -441,6 +452,7 @@ const Newspaper: React.FC = () => {
                             <div className="flex-1 text-[9px] text-justify font-serif text-neutral-700 leading-3">
                                 <p>Can an element be both visible and hidden? Schrödinger's Div explains all.</p>
                             </div>
+                            <div className="absolute bottom-4 left-4 z-50 font-serif text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]">4</div>
                         </div>
                     </div>
 
@@ -451,18 +463,19 @@ const Newspaper: React.FC = () => {
                             transform: `rotateY(${flippedIndex >= 1 ? -180 : 0}deg) translateZ(15px)` 
                         }}
                     >
-                        {/* Front (Cover - Img 0) */}
+                        {/* Front (Cover) */}
                         <div 
-                            className="absolute inset-0 bg-[#f4f1ea] [backface-visibility:hidden]" 
-                            style={{ backfaceVisibility: 'hidden', transform: 'translateZ(1px)' }}
+                            className="absolute inset-0 bg-[#f4f1ea]" 
+                            style={{ ...faceStyle, transform: 'translateZ(1px)' }}
                         >
                             {renderCoverContent()}
                         </div>
-                        {/* Back (Page 2 - Img 1) */}
+                        {/* Back (Page 2) */}
                         <div 
-                            className="absolute inset-0 bg-[#f4f1ea] [backface-visibility:hidden] shadow-[inset_-10px_0_20px_rgba(0,0,0,0.05)] p-6 flex flex-col rounded-l-md" 
-                            style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg) translateZ(1px)' }}
+                            className="absolute inset-0 bg-[#f4f1ea] shadow-[inset_-10px_0_20px_rgba(0,0,0,0.05)] p-6 flex flex-col rounded-l-md" 
+                            style={{ ...faceStyle, transform: 'rotateY(180deg) translateZ(1px)' }}
                         >
+                            <div className="absolute inset-0 bg-[#f4f1ea] -z-10"></div>
                             <div className="flex justify-between text-[10px] text-neutral-500 border-b border-black mb-4 pb-1 font-serif">
                                 <span>OPINION</span>
                                 <span>PAGE 2</span>
@@ -479,6 +492,7 @@ const Newspaper: React.FC = () => {
                                     <p className="mt-2">This newspaper itself is merely a collection of divs, rotated in 3D space. No WebGL, no canvas. Just pure geometry and style.</p>
                                 </div>
                             </div>
+                            <div className="absolute bottom-4 left-4 z-50 font-serif text-[12px] font-bold text-neutral-900 bg-white/50 px-1 rounded-sm backdrop-blur-[1px]">2</div>
                         </div>
                     </div>
                 </div>
@@ -553,7 +567,7 @@ const Newspaper: React.FC = () => {
         </div>
       </div>
 
-      {/* Control Panel - Responsive Height */}
+      {/* Control Panel */}
       <div className="bg-neutral-900 border-t border-neutral-800 p-4 md:p-6 z-30 overflow-y-auto h-auto max-h-[30vh] md:h-64">
         <div className="max-w-4xl mx-auto flex flex-col h-full justify-between gap-4">
             <div>

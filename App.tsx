@@ -13,6 +13,13 @@ import { SceneConfig, SceneType, DirectorParams } from './types';
 
 const scenes: SceneConfig[] = [
   {
+    id: SceneType.NEWSPAPER,
+    title: "The Daily Code",
+    movie: "Harry Potter",
+    year: "2001",
+    description: "A magical newspaper with moving images and 3D page turning interactions."
+  },
+  {
     id: SceneType.HAL_9000,
     title: "Logic Memory Center",
     movie: "2001: A Space Odyssey",
@@ -55,13 +62,6 @@ const scenes: SceneConfig[] = [
     description: "An animated splash screen featuring a sleeping figure on a moon and falling money."
   },
   {
-    id: SceneType.NEWSPAPER,
-    title: "The Daily Code",
-    movie: "Harry Potter",
-    year: "2001",
-    description: "A magical newspaper with moving images and 3D page turning interactions."
-  },
-  {
     id: SceneType.AI_DIRECTOR,
     title: "AI Director",
     movie: "Generative",
@@ -71,7 +71,7 @@ const scenes: SceneConfig[] = [
 ];
 
 const App: React.FC = () => {
-  const [currentSceneId, setCurrentSceneId] = useState<SceneType>(SceneType.HAL_9000);
+  const [currentSceneId, setCurrentSceneId] = useState<SceneType>(SceneType.NEWSPAPER);
   const [directorParams, setDirectorParams] = useState<DirectorParams | null>(null);
 
   const currentSceneConfig = scenes.find(s => s.id === currentSceneId);
@@ -102,7 +102,7 @@ const App: React.FC = () => {
           </div>
         );
       default:
-        return <Hal9000 />;
+        return <Newspaper />;
     }
   };
 
