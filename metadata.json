@@ -1,0 +1,5 @@
+{
+  "name": "CineCSS",
+  "description": "A curated collection of iconic movie scenes recreated with pure CSS animations, featuring an AI Director mode to generate abstract scene moods.",
+  "requestFramePermissions": []
+}
